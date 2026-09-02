@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>教學進度日曆</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { margin:0; font-family: 'Noto Sans TC', system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+const STORAGE_KEY = 'teaching-schedule-data';
+
+/* ---------------------------------------------------------
+   色票 / Nordic palette
+--------------------------------------------------------- */
+const pal = {
+  bg: '#F6F4EF',
+  surface: '#FFFFFF',
+  border: '#E6E1D6',
+  text: '#2E2B27',
+  muted: '#948C7C',
+  accentTb: '#5F7F93',
+  accentSl: '#87A06E',
+  today: '#C08A46',
+  holidayBg: '#EAE3D4',
+  holidayText: '#9A917D',
+  danger: '#B15A4A',
+};
+
+const WD = ['日', '一', '二', '三', '四', '五', '六'];
+const MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+
+/* ---------------------------------------------------------
+   簡易線條圖示（不依賴外部圖示庫）
+--------------------------------------------------------- */
+function Icon({ children, size = 16, color = 'currentColor', style, className }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} className={className}>
+      {children}
+    </svg>
+  );
+}
+const ChevronLeft = (p) => <Icon {...p}><polyline points="15 18 9 12 15 6" /></Icon>;
+const ChevronRight = (p) => <Icon {...p}><polyline points="9 18 15 12 9 6" /></Icon>;
+const PlusIcon = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>;
+const XIcon = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>;
+const Trash2 = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Icon>;
+const BookOpen = (p) => <Icon {...p}><path d="M2 4h7a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2V4z" /><path d="M22 4h-7a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h8V4z" /></Icon>;
+const Layers = (p) => <Icon {...p}><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></Icon>;
+const Check = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12" /></Icon>;
+const Pencil = (p) => <Icon {...p}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></Icon>;
+const CalendarDays = (p) => <Icon {...p}><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></Icon>;
+
+/* ---------------------------------------------------------
+   日期工具
+--------------------------------------------------------- */
+const pad2 = (n) => String(n).padStart(2, '0');
+const toISO = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const fromISO = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+const todayISO = () => toISO(new Date());
+const uid = () => 'id-' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
+const fmtLong = (iso) => { const d = fromISO(iso); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 星期${WD[d.getDay()]}`; };
+function expandRange(startISO, endISO) {
+  const out = [];
+  let c = fromISO(startISO);
+  const end = fromISO(endISO);
+  let guard = 0;
+  while (c <= end && guard < 366) { out.push(toISO(c)); c = addDays(c, 1); guard++; }
+  return out;
+}
+
+/* ---------------------------------------------------------
+   核心排程模擬
+--------------------------------------------------------- */
+function simulateCourse(course, endDate) {
+  const holidayMap = new Map((course.holidays || []).map(h => [h.date, h.label || '假日']));
+  const extraMap = new Map((course.extraDates || []).map(h => [h.date, h.label || '補課']));
+  const shiftMap = new Map((course.shifts || []).map(s => [s.afterSessionNumber, s.days]));
+  const overrides = course.overrides || {};
+
+  let cursor = fromISO(course.startDate);
+  let tbP = 0, slP = 0, sessionNumber = 0;
+  const sessions = [];
+  const byDate = new Map();
+  let guard = 0;
+
+  while (cursor <= endDate && guard < 1500) {
+    guard++;
+    const iso = toISO(cursor);
+    const isHoliday = holidayMap.has(iso);
+    const isExtra = extraMap.has(iso);
+    const isWeekdayClass = (course.classDays || []).includes(cursor.getDay());
+    const isClassDay = !isHoliday && (isWeekdayClass || isExtra);
+
+    if (isClassDay) {
+      sessionNumber++;
+      const ov = overrides[sessionNumber];
+      let tbStart, tbEnd, slStart, slEnd;
+      if (ov) {
+        tbStart = ov.textbookStart; tbEnd = ov.textbookEnd;
+        slStart = ov.slideStart; slEnd = ov.slideEnd;
+      } else {
+        tbStart = tbP + 1; tbEnd = tbP + (Number(course.textbookPerSession) || 0);
+        slStart = slP + 1; slEnd = slP + (Number(course.slidePerSession) || 0);
+      }
+      tbP = tbEnd; slP = slEnd;
+      const session = { date: iso, sessionNumber, tbStart, tbEnd, slStart, slEnd, note: ov?.note || '', overridden: !!ov, isExtra };
+      sessions.push(session);
+      byDate.set(iso, session);
+
+      if (shiftMap.has(sessionNumber)) {
+        cursor = addDays(cursor, 1 + shiftMap.get(sessionNumber));
+        continue;
+      }
+    }
+    cursor = addDays(cursor, 1);
+  }
+  return { sessions, byDate, holidayMap, extraMap };
+}
+
+function buildMonthCells(year, month) {
+  const first = new Date(year, month, 1);
+  const startWeekday = first.getDay();
+  const numDays = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= numDays; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function defaultCourse(name = '新科目') {
+  return {
+    id: uid(),
+    name,
+    startDate: todayISO(),
+    classDays: [1, 3, 5],
+    textbookPerSession: 4,
+    slidePerSession: 15,
+    textbookTotal: 200,
+    slideTotal: 600,
+    holidays: [],
+    extraDates: [],
+    overrides: {},
+    shifts: [],
+  };
+}
+
+/* ---------------------------------------------------------
+   主程式
+--------------------------------------------------------- */
+function App() {
+  const [courses, setCourses] = useState([]);
+  const [activeId, setActiveId] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [viewYear, setViewYear] = useState(new Date().getFullYear());
+  const [selectedDateISO, setSelectedDateISO] = useState(null);
+  const [tab, setTab] = useState('holiday');
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        const cs = data.courses && data.courses.length ? data.courses : [defaultCourse('國文')];
+        setCourses(cs);
+        setActiveId(data.activeId && cs.find(c => c.id === data.activeId) ? data.activeId : cs[0].id);
+      } else {
+        const c = defaultCourse('國文');
+        setCourses([c]); setActiveId(c.id);
+      }
+    } catch (e) {
+      console.error('讀取本機儲存失敗', e);
+      const c = defaultCourse('國文');
+      setCourses([c]); setActiveId(c.id);
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ courses, activeId })); }
+    catch (e) { console.error('儲存失敗', e); }
+  }, [courses, activeId, loaded]);
+
+  const activeCourse = courses.find(c => c.id === activeId) || null;
+
+  const { sessions, byDate, holidayMap, extraMap } = useMemo(() => {
+    if (!activeCourse) return { sessions: [], byDate: new Map(), holidayMap: new Map(), extraMap: new Map() };
+    return simulateCourse(activeCourse, new Date(viewYear, 11, 31));
+  }, [activeCourse, viewYear]);
+
+  const today = todayISO();
+  const todaySession = byDate.get(today);
+  const nextSession = !todaySession ? sessions.find(s => s.date > today) : null;
+  const pastSessions = sessions.filter(s => s.date <= today);
+  const currentTb = pastSessions.length ? pastSessions[pastSessions.length - 1].tbEnd : 0;
+  const currentSl = pastSessions.length ? pastSessions[pastSessions.length - 1].slEnd : 0;
+  const tbPct = activeCourse?.textbookTotal ? Math.min(100, Math.round((currentTb / activeCourse.textbookTotal) * 100)) : null;
+  const slPct = activeCourse?.slideTotal ? Math.min(100, Math.round((currentSl / activeCourse.slideTotal) * 100)) : null;
+
+  function updateActiveCourse(mutator) {
+    setCourses(prev => prev.map(c => (c.id === activeId ? mutator({ ...c }) : c)));
+  }
+  function updateField(field, value) { updateActiveCourse(c => ({ ...c, [field]: value })); }
+  function toggleClassDay(day) {
+    updateActiveCourse(c => {
+      const has = (c.classDays || []).includes(day);
+      const classDays = has ? c.classDays.filter(d => d !== day) : [...(c.classDays || []), day].sort();
+      return { ...c, classDays };
+    });
+  }
+  function addCourse() {
+    const c = defaultCourse('新科目');
+    setCourses(prev => [...prev, c]);
+    setActiveId(c.id);
+  }
+  function removeCourse(id) {
+    setCourses(prev => {
+      const next = prev.filter(c => c.id !== id);
+      if (id === activeId) setActiveId(next[0]?.id || null);
+      return next;
+    });
+  }
+  function addHoliday(date, label) {
+    updateActiveCourse(c => ({ ...c, holidays: [...(c.holidays || []).filter(h => h.date !== date), { date, label }] }));
+  }
+  function removeHoliday(date) {
+    updateActiveCourse(c => ({ ...c, holidays: (c.holidays || []).filter(h => h.date !== date) }));
+  }
+  function addExtra(date, label) {
+    updateActiveCourse(c => ({ ...c, extraDates: [...(c.extraDates || []).filter(h => h.date !== date), { date, label }] }));
+  }
+  function removeExtra(date) {
+    updateActiveCourse(c => ({ ...c, extraDates: (c.extraDates || []).filter(h => h.date !== date) }));
+  }
+  function setOverride(sessionNumber, data) {
+    updateActiveCourse(c => ({ ...c, overrides: { ...(c.overrides || {}), [sessionNumber]: data } }));
+  }
+  function clearOverride(sessionNumber) {
+    updateActiveCourse(c => {
+      const overrides = { ...(c.overrides || {}) };
+      delete overrides[sessionNumber];
+      return { ...c, overrides };
+    });
+  }
+  function addShift(afterSessionNumber, days) {
+    updateActiveCourse(c => {
+      const shifts = (c.shifts || []).filter(s => s.afterSessionNumber !== afterSessionNumber);
+      if (days) shifts.push({ afterSessionNumber, days });
+      shifts.sort((a, b) => a.afterSessionNumber - b.afterSessionNumber);
+      return { ...c, shifts };
+    });
+  }
+  function removeShift(afterSessionNumber) {
+    updateActiveCourse(c => ({ ...c, shifts: (c.shifts || []).filter(s => s.afterSessionNumber !== afterSessionNumber) }));
+  }
+
+  if (!loaded) {
+    return <div style={{ background: pal.bg, color: pal.muted }} className="min-h-screen flex items-center justify-center text-sm">載入中…</div>;
+  }
+
+  return (
+    <div style={{ background: pal.bg, color: pal.text, minHeight: '100vh' }}>
+      <header className="px-6 pt-6 pb-4 flex flex-wrap items-center gap-4" style={{ borderBottom: `1px solid ${pal.border}` }}>
+        <div className="flex items-center gap-2">
+          <CalendarDays size={22} color={pal.accentTb} />
+          <h1 className="text-lg font-medium tracking-wide">教學進度日曆</h1>
+        </div>
+        <div className="flex items-center gap-1 ml-auto">
+          <button onClick={() => setViewYear(y => y - 1)} className="p-1.5 rounded-full hover:bg-black/5"><ChevronLeft size={18} /></button>
+          <span className="w-16 text-center font-medium">{viewYear}</span>
+          <button onClick={() => setViewYear(y => y + 1)} className="p-1.5 rounded-full hover:bg-black/5"><ChevronRight size={18} /></button>
+        </div>
+      </header>
+
+      <div className="px-6 pt-4 flex flex-wrap items-center gap-2">
+        {courses.map(c => (
+          <div key={c.id} onClick={() => setActiveId(c.id)}
+            className="group flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full text-sm cursor-pointer select-none"
+            style={{
+              background: c.id === activeId ? pal.accentTb : pal.surface,
+              color: c.id === activeId ? '#fff' : pal.text,
+              border: `1px solid ${c.id === activeId ? pal.accentTb : pal.border}`,
+            }}>
+            {c.name}
+            {courses.length > 1 && (
+              <XIcon size={13} className="opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); removeCourse(c.id); }} />
+            )}
+          </div>
+        ))}
+        <button onClick={addCourse} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm border border-dashed" style={{ borderColor: pal.border, color: pal.muted }}>
+          <PlusIcon size={14} /> 新增科目
+        </button>
+      </div>
+
+      {activeCourse && (
+        <div className="px-6 py-5 flex flex-col lg:flex-row gap-6">
+          <aside className="lg:w-80 flex-shrink-0 space-y-5">
+            <div className="rounded-2xl p-4 space-y-3" style={{ background: pal.surface, border: `1px solid ${pal.border}` }}>
+              <div className="flex items-center gap-2">
+                <Pencil size={14} color={pal.muted} />
+                <input value={activeCourse.name} onChange={e => updateField('name', e.target.value)}
+                  className="text-sm font-medium bg-transparent outline-none flex-1" style={{ color: pal.text }} />
+              </div>
+              <label className="block text-xs" style={{ color: pal.muted }}>開課日期</label>
+              <input type="date" value={activeCourse.startDate} onChange={e => updateField('startDate', e.target.value)}
+                className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}`, background: pal.bg }} />
+              <label className="block text-xs pt-1" style={{ color: pal.muted }}>上課星期</label>
+              <div className="flex gap-1">
+                {WD.map((w, i) => (
+                  <button key={i} onClick={() => toggleClassDay(i)} className="w-8 h-8 rounded-full text-xs"
+                    style={{
+                      background: activeCourse.classDays.includes(i) ? pal.accentTb : pal.bg,
+                      color: activeCourse.classDays.includes(i) ? '#fff' : pal.muted,
+                      border: `1px solid ${activeCourse.classDays.includes(i) ? pal.accentTb : pal.border}`,
+                    }}>{w}</button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div>
+                  <div className="flex items-center gap-1 text-xs mb-1" style={{ color: pal.accentTb }}><BookOpen size={13} /> 課本</div>
+                  <input type="number" value={activeCourse.textbookPerSession} onChange={e => updateField('textbookPerSession', Number(e.target.value))}
+                    placeholder="每次頁數" className="w-full text-sm rounded-lg px-2 py-1.5 mb-1" style={{ border: `1px solid ${pal.border}` }} />
+                  <input type="number" value={activeCourse.textbookTotal} onChange={e => updateField('textbookTotal', Number(e.target.value))}
+                    placeholder="總頁數" className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1 text-xs mb-1" style={{ color: pal.accentSl }}><Layers size={13} /> 投影片</div>
+                  <input type="number" value={activeCourse.slidePerSession} onChange={e => updateField('slidePerSession', Number(e.target.value))}
+                    placeholder="每次頁數" className="w-full text-sm rounded-lg px-2 py-1.5 mb-1" style={{ border: `1px solid ${pal.border}` }} />
+                  <input type="number" value={activeCourse.slideTotal} onChange={e => updateField('slideTotal', Number(e.target.value))}
+                    placeholder="總頁數" className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+                </div>
+              </div>
+              {(tbPct !== null || slPct !== null) && (
+                <div className="pt-2 space-y-2">
+                  {tbPct !== null && (
+                    <div>
+                      <div className="flex justify-between text-xs mb-0.5" style={{ color: pal.muted }}><span>課本進度</span><span>{currentTb}/{activeCourse.textbookTotal}</span></div>
+                      <div className="h-1.5 rounded-full" style={{ background: pal.bg }}><div className="h-1.5 rounded-full" style={{ width: `${tbPct}%`, background: pal.accentTb }} /></div>
+                    </div>
+                  )}
+                  {slPct !== null && (
+                    <div>
+                      <div className="flex justify-between text-xs mb-0.5" style={{ color: pal.muted }}><span>投影片進度</span><span>{currentSl}/{activeCourse.slideTotal}</span></div>
+                      <div className="h-1.5 rounded-full" style={{ background: pal.bg }}><div className="h-1.5 rounded-full" style={{ width: `${slPct}%`, background: pal.accentSl }} /></div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl p-4" style={{ background: pal.surface, border: `1px solid ${pal.border}` }}>
+              <div className="flex gap-1 mb-3">
+                {[['holiday', '假日'], ['extra', '補課'], ['shift', '順延記錄']].map(([k, label]) => (
+                  <button key={k} onClick={() => setTab(k)} className="px-2.5 py-1 rounded-full text-xs"
+                    style={{ background: tab === k ? pal.text : 'transparent', color: tab === k ? pal.surface : pal.muted }}>{label}</button>
+                ))}
+              </div>
+              {tab === 'holiday' && <HolidayPanel list={activeCourse.holidays || []} onAdd={addHoliday} onRemove={removeHoliday} />}
+              {tab === 'extra' && <HolidayPanel list={activeCourse.extraDates || []} onAdd={addExtra} onRemove={removeExtra} addLabel="補課日" />}
+              {tab === 'shift' && (
+                <div className="space-y-2">
+                  {(activeCourse.shifts || []).length === 0 && <p className="text-xs" style={{ color: pal.muted }}>尚無順延調整。點選日曆中某堂課即可設定「此後順延」。</p>}
+                  {(activeCourse.shifts || []).map(s => (
+                    <div key={s.afterSessionNumber} className="flex items-center justify-between text-xs rounded-lg px-2 py-1.5" style={{ background: pal.bg }}>
+                      <span>第 {s.afterSessionNumber} 堂課後，順延 {s.days} 天</span>
+                      <Trash2 size={13} className="cursor-pointer" style={{ color: pal.danger }} onClick={() => removeShift(s.afterSessionNumber)} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </aside>
+
+          <main className="flex-1 space-y-5">
+            <div className="rounded-2xl p-5" style={{ background: pal.surface, border: `1px solid ${pal.border}` }}>
+              {todaySession ? (
+                <>
+                  <div className="text-xs mb-1" style={{ color: pal.today }}>今天 · {fmtLong(today)} · 第 {todaySession.sessionNumber} 堂</div>
+                  <div className="flex flex-wrap gap-6 mt-2">
+                    <div className="flex items-center gap-2"><BookOpen size={16} color={pal.accentTb} /><span className="text-sm">課本 P.{todaySession.tbStart}–{todaySession.tbEnd}</span></div>
+                    <div className="flex items-center gap-2"><Layers size={16} color={pal.accentSl} /><span className="text-sm">投影片 P.{todaySession.slStart}–{todaySession.slEnd}</span></div>
+                  </div>
+                  {todaySession.note && <p className="text-xs mt-2" style={{ color: pal.muted }}>備註：{todaySession.note}</p>}
+                </>
+              ) : nextSession ? (
+                <>
+                  <div className="text-xs mb-1" style={{ color: pal.muted }}>今天沒有排課 · 下一堂在 {fmtLong(nextSession.date)}</div>
+                  <div className="flex flex-wrap gap-6 mt-2">
+                    <div className="flex items-center gap-2"><BookOpen size={16} color={pal.accentTb} /><span className="text-sm">課本 P.{nextSession.tbStart}–{nextSession.tbEnd}</span></div>
+                    <div className="flex items-center gap-2"><Layers size={16} color={pal.accentSl} /><span className="text-sm">投影片 P.{nextSession.slStart}–{nextSession.slEnd}</span></div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm" style={{ color: pal.muted }}>本學年查無排課，請確認開課日期與上課星期設定。</div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {MONTHS.map((label, m) => (
+                <MonthCard key={m} year={viewYear} month={m} label={label} byDate={byDate} holidayMap={holidayMap} extraMap={extraMap} today={today} onSelect={setSelectedDateISO} />
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-4 text-xs pt-1" style={{ color: pal.muted }}>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: pal.accentTb }} />上課日</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: pal.holidayBg, border: `1px solid ${pal.holidayText}` }} />假日 / 停課</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ border: `2px solid ${pal.today}` }} />今天</span>
+            </div>
+          </main>
+        </div>
+      )}
+
+      {!activeCourse && <div className="p-10 text-center text-sm" style={{ color: pal.muted }}>尚無科目，請先新增一個科目。</div>}
+
+      {selectedDateISO && (
+        <DayModal
+          dateISO={selectedDateISO}
+          session={byDate.get(selectedDateISO)}
+          holidayLabel={holidayMap.get(selectedDateISO)}
+          extraLabel={extraMap.get(selectedDateISO)}
+          shift={(activeCourse?.shifts || []).find(s => byDate.get(selectedDateISO) && s.afterSessionNumber === byDate.get(selectedDateISO).sessionNumber)}
+          onClose={() => setSelectedDateISO(null)}
+          onSaveOverride={(sessionNumber, data) => setOverride(sessionNumber, data)}
+          onClearOverride={(sessionNumber) => clearOverride(sessionNumber)}
+          onSetHoliday={() => addHoliday(selectedDateISO, '假日')}
+          onRemoveHoliday={() => removeHoliday(selectedDateISO)}
+          onSetExtra={() => addExtra(selectedDateISO, '補課')}
+          onRemoveExtra={() => removeExtra(selectedDateISO)}
+          onApplyShift={(days) => byDate.get(selectedDateISO) && addShift(byDate.get(selectedDateISO).sessionNumber, days)}
+        />
+      )}
+    </div>
+  );
+}
+
+function MonthCard({ year, month, label, byDate, holidayMap, extraMap, today, onSelect }) {
+  const cells = buildMonthCells(year, month);
+  return (
+    <div className="rounded-2xl p-3" style={{ background: pal.surface, border: `1px solid ${pal.border}` }}>
+      <div className="text-sm font-medium mb-2 px-1">{label}</div>
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {WD.map(w => <div key={w} className="text-center text-[10px]" style={{ color: pal.muted }}>{w}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((d, i) => {
+          if (!d) return <div key={i} />;
+          const iso = `${year}-${pad2(month + 1)}-${pad2(d)}`;
+          const session = byDate.get(iso);
+          const holiday = holidayMap.get(iso);
+          const isToday = iso === today;
+          const isExtra = extraMap.get(iso);
+          return (
+            <div key={i} onClick={() => onSelect(iso)} className="rounded-md cursor-pointer flex flex-col items-center justify-start py-0.5 leading-none"
+              style={{ minHeight: 40, background: holiday ? pal.holidayBg : session ? '#F0F6F3' : 'transparent', boxShadow: isToday ? `inset 0 0 0 1.5px ${pal.today}` : 'none' }}>
+              <span className="text-[11px]" style={{ color: holiday ? pal.holidayText : pal.text }}>{d}</span>
+              {holiday && <span className="text-[8px] mt-0.5 truncate w-full text-center px-0.5" style={{ color: pal.holidayText }}>{holiday}</span>}
+              {!holiday && session && (
+                <div className="text-[8px] mt-0.5 text-center leading-tight">
+                  <div style={{ color: pal.accentTb }}>{session.tbStart}-{session.tbEnd}</div>
+                  <div style={{ color: pal.accentSl }}>{session.slStart}-{session.slEnd}</div>
+                </div>
+              )}
+              {!holiday && isExtra && !session && <span className="text-[8px] mt-0.5" style={{ color: pal.accentSl }}>補</span>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HolidayPanel({ list, onAdd, onRemove, addLabel = '假日' }) {
+  const [date, setDate] = useState('');
+  const [label, setLabel] = useState('');
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1">
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 flex-1" style={{ border: `1px solid ${pal.border}` }} />
+        <input type="text" value={label} placeholder={addLabel} onChange={e => setLabel(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 w-20" style={{ border: `1px solid ${pal.border}` }} />
+        <button disabled={!date} onClick={() => { onAdd(date, label || addLabel); setDate(''); setLabel(''); }} className="px-2 rounded-lg" style={{ background: pal.text, color: pal.surface, opacity: date ? 1 : 0.4 }}><PlusIcon size={13} /></button>
+      </div>
+      <details className="text-xs" style={{ color: pal.muted }}>
+        <summary className="cursor-pointer">批次加入日期範圍</summary>
+        <div className="flex gap-1 pt-2">
+          <input type="date" value={rangeStart} onChange={e => setRangeStart(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 flex-1" style={{ border: `1px solid ${pal.border}` }} />
+          <input type="date" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 flex-1" style={{ border: `1px solid ${pal.border}` }} />
+          <button disabled={!rangeStart || !rangeEnd} onClick={() => { expandRange(rangeStart, rangeEnd).forEach(d => onAdd(d, label || addLabel)); setRangeStart(''); setRangeEnd(''); }}
+            className="px-2 rounded-lg" style={{ background: pal.text, color: pal.surface, opacity: (rangeStart && rangeEnd) ? 1 : 0.4 }}><PlusIcon size={13} /></button>
+        </div>
+      </details>
+      <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+        {list.length === 0 && <p className="text-xs" style={{ color: pal.muted }}>尚未加入任何{addLabel}。</p>}
+        {[...list].sort((a, b) => a.date.localeCompare(b.date)).map(h => (
+          <div key={h.date} className="flex items-center justify-between text-xs rounded-lg px-2 py-1.5" style={{ background: pal.bg }}>
+            <span>{h.date} · {h.label}</span>
+            <Trash2 size={13} className="cursor-pointer" style={{ color: pal.danger }} onClick={() => onRemove(h.date)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DayModal({ dateISO, session, holidayLabel, extraLabel, shift, onClose, onSaveOverride, onClearOverride, onSetHoliday, onRemoveHoliday, onSetExtra, onRemoveExtra, onApplyShift }) {
+  const [form, setForm] = useState(null);
+  const [shiftDays, setShiftDays] = useState(shift?.days || 0);
+  useEffect(() => {
+    if (session) setForm({ tbStart: session.tbStart, tbEnd: session.tbEnd, slStart: session.slStart, slEnd: session.slEnd, note: session.note || '' });
+    else setForm(null);
+    setShiftDays(shift?.days || 0);
+  }, [dateISO]);
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center p-4 z-50" style={{ background: 'rgba(46,43,39,0.35)' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-2xl p-5 space-y-4" style={{ background: pal.surface }}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-sm font-medium">{fmtLong(dateISO)}</div>
+            {session && <div className="text-xs mt-0.5" style={{ color: pal.muted }}>第 {session.sessionNumber} 堂課{session.overridden ? '（手動調整）' : ''}</div>}
+          </div>
+          <XIcon size={18} className="cursor-pointer" onClick={onClose} style={{ color: pal.muted }} />
+        </div>
+
+        {holidayLabel ? (
+          <div className="flex items-center justify-between rounded-lg px-3 py-2 text-sm" style={{ background: pal.holidayBg, color: pal.holidayText }}>
+            <span>本日為「{holidayLabel}」，自動跳過排課</span>
+            <button onClick={onRemoveHoliday} className="text-xs underline">取消</button>
+          </div>
+        ) : (
+          <button onClick={onSetHoliday} className="w-full text-sm rounded-lg py-2" style={{ border: `1px solid ${pal.border}`, color: pal.muted }}>設為假日 / 停課</button>
+        )}
+
+        {!holidayLabel && session && form && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="flex items-center gap-1 text-xs mb-1" style={{ color: pal.accentTb }}><BookOpen size={13} /> 課本頁數</div>
+                <div className="flex items-center gap-1">
+                  <input type="number" value={form.tbStart} onChange={e => setForm({ ...form, tbStart: Number(e.target.value) })} className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+                  <span style={{ color: pal.muted }}>–</span>
+                  <input type="number" value={form.tbEnd} onChange={e => setForm({ ...form, tbEnd: Number(e.target.value) })} className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center gap-1 text-xs mb-1" style={{ color: pal.accentSl }}><Layers size={13} /> 投影片頁數</div>
+                <div className="flex items-center gap-1">
+                  <input type="number" value={form.slStart} onChange={e => setForm({ ...form, slStart: Number(e.target.value) })} className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+                  <span style={{ color: pal.muted }}>–</span>
+                  <input type="number" value={form.slEnd} onChange={e => setForm({ ...form, slEnd: Number(e.target.value) })} className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+                </div>
+              </div>
+            </div>
+            <input type="text" value={form.note} placeholder="備註（選填）" onChange={e => setForm({ ...form, note: e.target.value })} className="w-full text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+            <div className="flex gap-2">
+              <button onClick={() => { onSaveOverride(session.sessionNumber, { textbookStart: form.tbStart, textbookEnd: form.tbEnd, slideStart: form.slStart, slideEnd: form.slEnd, note: form.note }); onClose(); }}
+                className="flex-1 text-sm rounded-lg py-2 flex items-center justify-center gap-1" style={{ background: pal.text, color: pal.surface }}>
+                <Check size={14} /> 儲存
+              </button>
+              {session.overridden && (
+                <button onClick={() => { onClearOverride(session.sessionNumber); onClose(); }} className="text-sm rounded-lg py-2 px-3" style={{ border: `1px solid ${pal.border}`, color: pal.muted }}>還原自動</button>
+              )}
+            </div>
+            <div className="pt-2" style={{ borderTop: `1px solid ${pal.border}` }}>
+              <div className="text-xs mb-1 pt-2" style={{ color: pal.muted }}>此堂課之後，所有課程順延（天）</div>
+              <div className="flex gap-2">
+                <input type="number" value={shiftDays} onChange={e => setShiftDays(Number(e.target.value))} className="flex-1 text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${pal.border}` }} />
+                <button onClick={() => { onApplyShift(shiftDays); onClose(); }} className="text-sm rounded-lg px-3" style={{ background: pal.accentTb, color: '#fff' }}>套用</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!holidayLabel && !session && (
+          extraLabel ? (
+            <div className="flex items-center justify-between rounded-lg px-3 py-2 text-sm" style={{ background: '#F0F6F3', color: pal.accentSl }}>
+              <span>本日為補課日</span>
+              <button onClick={onRemoveExtra} className="text-xs underline">取消</button>
+            </div>
+          ) : (
+            <button onClick={onSetExtra} className="w-full text-sm rounded-lg py-2" style={{ border: `1px solid ${pal.border}`, color: pal.muted }}>設為補課日</button>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
