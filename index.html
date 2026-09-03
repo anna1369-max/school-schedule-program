@@ -1,0 +1,1363 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>教學進度規劃表</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --bg:#F6F7F5;
+    --surface:#FFFFFF;
+    --ink:#2B2E33;
+    --ink-soft:#5B6169;
+    --muted:#9AA0A6;
+    --line:#E2E5E1;
+    --line-strong:#D3D7D1;
+    --accent:#5D7E93;
+    --accent-dark:#3F5B6C;
+    --accent-tint:#E4ECF0;
+    --holiday-bg:#ECE9E2;
+    --holiday-ink:#A39A8B;
+    --today-ring:#3F6659;
+    --danger:#B15C4A;
+    --radius:10px;
+    --radius-sm:6px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.font-display{
+    font-family:'Space Grotesk','Inter',sans-serif;
+    letter-spacing:-0.01em;
+  }
+  #app{max-width:1180px;margin:0 auto;padding:28px 24px 80px;}
+
+  /* ---------- Topbar ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    flex-wrap:wrap;gap:16px;
+    margin-bottom:22px;
+  }
+  .brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;}
+  .brand h1{font-size:22px;font-weight:600;margin:0;color:var(--ink);}
+  .brand .sub{color:var(--muted);font-size:13px;}
+  .topbar-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+
+  select, input[type=date], input[type=number], input[type=text], textarea{
+    font-family:inherit;font-size:13px;color:var(--ink);
+    background:var(--surface);border:1px solid var(--line-strong);
+    border-radius:var(--radius-sm);padding:7px 10px;
+  }
+  select:focus, input:focus, textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
+
+  .btn{
+    font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
+    border-radius:var(--radius-sm);padding:8px 14px;border:1px solid transparent;
+    background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);
+    transition:background .15s ease, border-color .15s ease;
+  }
+  .btn:hover{border-color:var(--accent);}
+  .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .btn-primary:hover{background:var(--accent-dark);border-color:var(--accent-dark);}
+  .btn-ghost{border-color:transparent;background:transparent;}
+  .btn-ghost:hover{background:var(--accent-tint);border-color:transparent;}
+  .btn-danger{color:var(--danger);border-color:var(--line-strong);}
+  .btn-danger:hover{border-color:var(--danger);background:#F7EEEC;}
+  .btn-sm{padding:5px 10px;font-size:12px;}
+  .icon-btn{
+    width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--line-strong);background:var(--surface);cursor:pointer;color:var(--ink-soft);
+  }
+  .icon-btn:hover{border-color:var(--accent);color:var(--accent-dark);}
+
+  .year-nav{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 6px;}
+  .year-nav .year-label{font-family:'Space Grotesk';font-weight:600;font-size:15px;min-width:96px;text-align:center;}
+
+  .view-toggle{display:flex;border:1px solid var(--line-strong);border-radius:999px;overflow:hidden;}
+  .view-toggle button{border:none;background:var(--surface);padding:7px 14px;font-size:12.5px;cursor:pointer;color:var(--ink-soft);font-family:inherit;}
+  .view-toggle button.active{background:var(--accent);color:#fff;}
+
+  .sync-badge{
+    display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);
+    border:1px solid var(--line-strong);border-radius:999px;padding:6px 12px;cursor:pointer;background:var(--surface);
+  }
+  .sync-badge:hover{border-color:var(--accent);}
+  .sync-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);display:inline-block;}
+  .sync-badge.connected .dot{background:var(--today-ring);}
+  .sync-badge.error .dot{background:var(--danger);}
+
+  /* ---------- Today panel ---------- */
+  .today-wrap{margin-bottom:26px;}
+  .today-wrap > .label{font-size:12px;color:var(--muted);margin-bottom:8px;}
+  .today-cards{display:flex;gap:12px;flex-wrap:wrap;}
+  .today-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px 18px;min-width:220px;flex:1 1 220px;position:relative;
+    border-left:4px solid var(--accent);
+  }
+  .today-card .course-name{font-weight:600;font-size:14px;margin-bottom:4px;}
+  .today-card .lesson-idx{color:var(--muted);font-size:12px;margin-bottom:8px;}
+  .today-card .rows{display:flex;flex-direction:column;gap:3px;font-size:13px;}
+  .today-card .rows span.label{color:var(--muted);margin-right:6px;}
+  .today-card .note{margin-top:8px;font-size:12px;color:var(--ink-soft);font-style:italic;}
+  .today-empty{
+    background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--radius);
+    padding:16px 18px;color:var(--muted);font-size:13px;flex:1;
+  }
+  .today-holiday-banner{
+    background:var(--holiday-bg);border:1px solid var(--line-strong);border-radius:var(--radius);
+    padding:14px 18px;color:var(--ink-soft);font-size:13px;margin-bottom:12px;
+  }
+
+  /* ---------- Filter row ---------- */
+  .filter-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink-soft);}
+  .legend .item{display:flex;align-items:center;gap:6px;}
+  .legend .swatch{width:11px;height:11px;border-radius:3px;display:inline-block;}
+
+  /* ---------- Calendar grid ---------- */
+  .cal-grid{
+    display:block;
+  }
+
+  .month-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 26px 20px;max-width:760px;margin:0 auto;
+  }
+  .month-title{font-family:'Space Grotesk';font-weight:600;font-size:20px;margin:0 0 16px 2px;color:var(--ink);text-align:center;}
+  .weekday-row{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:6px;}
+  .weekday-row div{text-align:center;font-size:12px;color:var(--muted);padding-bottom:6px;letter-spacing:.02em;}
+  .day-grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:82px;gap:6px;}
+  .day-cell{
+    border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+    padding:8px 4px 6px;font-size:11px;color:var(--ink-soft);cursor:default;position:relative;
+  }
+  .day-cell.empty{visibility:hidden;}
+  .day-cell.clickable{cursor:pointer;}
+  .day-cell.clickable:hover{background:var(--accent-tint);}
+  .day-cell .num{font-size:13px;line-height:1;margin-bottom:5px;}
+  .day-cell.lesson{border:1px solid transparent;}
+  .day-cell.lesson .num{font-weight:600;}
+  .day-cell.holiday{background:var(--holiday-bg);color:var(--holiday-ink);}
+  .day-cell.holiday .num{text-decoration:line-through;text-decoration-color:var(--holiday-ink);}
+  .day-cell.today{box-shadow:inset 0 0 0 2px var(--today-ring);border-radius:8px;}
+  .day-cell .dots{display:flex;gap:3px;margin-top:2px;}
+  .day-cell .dots span{width:6px;height:6px;border-radius:50%;display:inline-block;}
+  .day-cell .idx-tag{font-size:10.5px;margin-top:1px;font-weight:600;}
+  .day-cell .page-tag{font-size:9.5px;margin-top:2px;color:var(--ink-soft);opacity:.85;line-height:1.3;text-align:center;}
+  .day-cell .note-tag{font-size:9px;margin-top:1px;color:var(--ink-soft);opacity:.7;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  .cal-grid.mode-year{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:920px){.cal-grid.mode-year{grid-template-columns:repeat(2,1fr);}}
+  @media (max-width:560px){.cal-grid.mode-year{grid-template-columns:1fr;}}
+  .cal-grid.mode-year .month-card{padding:14px 14px 10px;max-width:none;margin:0;}
+  .cal-grid.mode-year .month-title{display:block;font-size:14px;margin:0 0 10px 2px;text-align:left;}
+  .cal-grid.mode-year .weekday-row div{font-size:10.5px;padding-bottom:4px;}
+  .cal-grid.mode-year .day-grid{grid-auto-rows:34px;gap:3px;}
+  .cal-grid.mode-year .day-cell{padding:0;justify-content:center;}
+  .cal-grid.mode-year .day-cell .num{font-size:11.5px;margin-bottom:0;}
+  .cal-grid.mode-month .month-card{padding:22px 26px 20px;max-width:760px;margin:0 auto;}
+
+  /* ---------- Modal ---------- */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(43,46,51,0.35);display:none;
+    align-items:flex-start;justify-content:center;padding:40px 16px;z-index:100;overflow-y:auto;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal{
+    background:var(--surface);border-radius:12px;max-width:560px;width:100%;
+    padding:26px 28px 24px;box-shadow:0 12px 40px rgba(43,46,51,0.16);
+  }
+  .modal h2{font-size:17px;margin:0 0 4px;}
+  .modal .modal-sub{color:var(--muted);font-size:12.5px;margin-bottom:18px;}
+  .modal-close{position:absolute;}
+  .modal-header{display:flex;justify-content:space-between;align-items:flex-start;}
+  .field-row{display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+  .field{flex:1 1 140px;display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:12px;color:var(--ink-soft);}
+  .field input,.field select{width:100%;}
+  .field textarea{width:100%;resize:vertical;min-height:56px;}
+  .weekday-picker{display:flex;gap:6px;flex-wrap:wrap;}
+  .weekday-picker button{
+    width:34px;height:34px;border-radius:50%;border:1px solid var(--line-strong);background:var(--surface);
+    font-size:12px;cursor:pointer;color:var(--ink-soft);
+  }
+  .weekday-picker button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;}
+  .modal-divider{border:none;border-top:1px solid var(--line);margin:18px 0;}
+  .course-color-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;}
+
+  .tabs{display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--line);}
+  .tab-btn{background:none;border:none;padding:8px 4px;margin-right:14px;font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;font-family:inherit;}
+  .tab-btn.active{color:var(--ink);border-bottom-color:var(--accent);font-weight:600;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  .course-list-item, .holiday-list-item{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;font-size:13px;
+  }
+  .course-list-item .info,.holiday-list-item .info{display:flex;align-items:center;gap:4px;}
+  .course-list-item .info small,.holiday-list-item .info small{color:var(--muted);margin-left:6px;}
+  .empty-state{color:var(--muted);font-size:12.5px;padding:12px 0;}
+
+  .cloud-status-line{display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px;color:var(--ink-soft);}
+  .cloud-status-line .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;}
+  .cloud-status-line.connected .dot{background:var(--today-ring);}
+  .cloud-status-line.error .dot{background:var(--danger);}
+  .cloud-help{color:var(--muted);font-size:12px;line-height:1.6;margin:6px 0 16px;}
+  .cloud-help a{color:var(--accent-dark);}
+
+  .toast{
+    position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#fff;padding:9px 18px;border-radius:8px;font-size:13px;
+    opacity:0;pointer-events:none;transition:opacity .25s ease;z-index:200;
+  }
+  .toast.show{opacity:1;}
+
+  .loading-screen{
+    position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:13px;z-index:300;
+  }
+
+  #dayModalOverlay .modal{max-width:460px;}
+</style>
+</head>
+<body>
+
+<div class="loading-screen" id="loadingScreen">載入中…</div>
+
+<div id="app" style="display:none;">
+
+  <div class="topbar">
+    <div class="brand">
+      <h1>教學進度規劃表</h1>
+      <span class="sub">依科目自動排課，假日自動跳過</span>
+    </div>
+    <div class="topbar-actions">
+      <select id="courseFilter"></select>
+      <div class="year-nav">
+        <button class="icon-btn" id="prevMonth" title="上個月">‹</button>
+        <span class="year-label" id="monthLabel"></span>
+        <button class="icon-btn" id="nextMonth" title="下個月">›</button>
+      </div>
+      <button class="btn btn-sm" id="gotoTodayBtn">回到今天</button>
+      <span class="sync-badge" id="syncBadge" title="點擊設定雲端同步"><span class="dot"></span><span id="syncBadgeText">未連接雲端</span></span>
+      <button class="icon-btn" id="openSettings" title="設定">⚙</button>
+    </div>
+  </div>
+
+  <div class="today-wrap">
+    <div class="label">今天的教學進度</div>
+    <div id="todayArea"></div>
+  </div>
+
+  <div class="filter-row">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <div class="view-toggle" id="viewToggle">
+        <button data-view="month">單月檢視</button>
+        <button data-view="year">整年檢視</button>
+      </div>
+      <div class="legend" id="legendArea"></div>
+    </div>
+    <button class="btn btn-sm" id="addHolidayQuick">＋ 新增假期區間</button>
+  </div>
+
+  <div class="cal-grid" id="calGrid"></div>
+
+</div>
+
+<!-- Day Modal -->
+<div class="modal-overlay" id="dayModalOverlay">
+  <div class="modal" id="dayModalContent"></div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModalOverlay">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <div>
+        <h2>設定</h2>
+        <div class="modal-sub">管理科目排課規則與全校假日</div>
+      </div>
+      <button class="icon-btn" id="closeSettings">✕</button>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="courses">科目設定</button>
+      <button class="tab-btn" data-tab="holidays">假日管理</button>
+      <button class="tab-btn" data-tab="cloud">雲端同步</button>
+      <button class="tab-btn" data-tab="data">資料</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-courses">
+      <div id="courseListArea"></div>
+      <button class="btn btn-primary btn-sm" id="addCourseBtn" style="margin-top:6px;">＋ 新增科目</button>
+    </div>
+
+    <div class="tab-panel" id="tab-holidays">
+      <div id="holidayListArea"></div>
+      <button class="btn btn-primary btn-sm" id="addHolidayBtn" style="margin-top:6px;">＋ 新增假期區間</button>
+    </div>
+
+    <div class="tab-panel" id="tab-cloud">
+      <div class="cloud-status-line" id="cloudStatusLine"><span class="dot"></span><span id="cloudStatusText">尚未連接雲端同步</span></div>
+      <p class="cloud-help">
+        設定 Firebase 專案後，可以在手機、平板、電腦之間同步同一份課表。
+        到 <a href="https://console.firebase.google.com" target="_blank" rel="noopener">Firebase Console</a> 建立一個免費專案，
+        新增一個「Web應用程式」取得下列設定值，並在 Firestore 資料庫啟用（測試模式即可）。
+      </p>
+      <div class="field-row">
+        <div class="field"><label>API Key</label><input type="text" id="fbApiKey" placeholder="apiKey"></div>
+        <div class="field"><label>Project ID</label><input type="text" id="fbProjectId" placeholder="project-id"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Auth Domain</label><input type="text" id="fbAuthDomain" placeholder="project-id.firebaseapp.com"></div>
+        <div class="field"><label>Storage Bucket</label><input type="text" id="fbStorageBucket" placeholder="project-id.appspot.com"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Messaging Sender ID</label><input type="text" id="fbSenderId" placeholder="123456789"></div>
+        <div class="field"><label>App ID</label><input type="text" id="fbAppId" placeholder="1:123:web:abcd"></div>
+      </div>
+      <div class="field">
+        <label>同步代碼（自訂一組代碼，在每台裝置輸入相同代碼即可同步同一份課表，請妥善保管避免被他人猜到）</label>
+        <input type="text" id="fbSyncCode" placeholder="例如：chen-teacher-2026">
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button class="btn btn-primary btn-sm" id="cloudConnectBtn">連接並同步</button>
+        <button class="btn btn-danger btn-sm" id="cloudDisconnectBtn">中斷雲端同步</button>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-data">
+      <p style="color:var(--ink-soft);font-size:13px;">資料預設儲存在目前瀏覽器中；設定雲端同步後會同時備份到 Firebase，可跨裝置存取。</p>
+      <button class="btn btn-danger btn-sm" id="resetDataBtn">清除所有資料並重設為預設範例</button>
+    </div>
+  </div>
+</div>
+
+<!-- Course Edit Modal -->
+<div class="modal-overlay" id="courseEditOverlay">
+  <div class="modal" id="courseEditContent" style="max-width:520px;"></div>
+</div>
+
+<!-- Holiday Edit Modal -->
+<div class="modal-overlay" id="holidayEditOverlay">
+  <div class="modal" id="holidayEditContent" style="max-width:420px;"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+
+  /* ================= Utilities ================= */
+  const COLORS = ['#5D7E93','#77906D','#B0895A','#9C6E6E','#6E7F9C','#7A8A5A'];
+  const WEEKDAY_LABELS = ['一','二','三','四','五','六','日']; // index0=Mon ... index6=Sun
+  const pad2 = n => String(n).padStart(2,'0');
+  const dstr = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y, m-1, d); };
+  const jsDayToIdx = jsDay => (jsDay+6)%7; // Sun(0)->6, Mon(1)->0
+  const todayStr = dstr(new Date());
+  const uid = () => Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
+  const weekdayLabelOf = dateStr => {
+    const d = parseDate(dateStr);
+    return '週'+WEEKDAY_LABELS[jsDayToIdx(d.getDay())];
+  };
+
+  function addDays(dateStr, n){
+    const d = parseDate(dateStr); d.setDate(d.getDate()+n); return dstr(d);
+  }
+
+  /* ================= Default seed data ================= */
+  function seedData(){
+    const now = new Date();
+    const y = now.getFullYear();
+    return {
+      activeCourseId: 'all',
+      year: y,
+      month: now.getMonth(),
+      viewMode: 'month',
+      globalHolidays: [
+        {id: uid(), label:'教師節', start:`${y}-09-28`, end:`${y}-09-28`},
+        {id: uid(), label:'國慶連假', start:`${y}-10-09`, end:`${y}-10-11`},
+      ],
+      courses: [
+        {
+          id: uid(), name:'數學', color: COLORS[0],
+          startDate: `${y}-09-01`, endDate: `${y+1}-01-20`,
+          weekdays: [true,false,true,false,true,false,false], // 一三五
+          textbookStartPage: 1, textbookPagesPerLesson: 6,
+          slideStartPage: 1, slidePagesPerLesson: 12,
+          periodsPerLesson: 2,
+          units: [
+            {id: uid(), name:'第一單元・整數與因數', lessonCount: 8},
+            {id: uid(), name:'第二單元・分數運算', lessonCount: 10},
+            {id: uid(), name:'第三單元・幾何圖形', lessonCount: 8}
+          ],
+          skipDates: [], extraDates: [], overrides: {}
+        },
+        {
+          id: uid(), name:'英文', color: COLORS[1],
+          startDate: `${y}-09-01`, endDate: `${y+1}-01-20`,
+          weekdays: [false,true,false,true,false,false,false], // 二四
+          textbookStartPage: 1, textbookPagesPerLesson: 4,
+          slideStartPage: 1, slidePagesPerLesson: 8,
+          periodsPerLesson: 1,
+          units: [
+            {id: uid(), name:'Unit 1', lessonCount: 6},
+            {id: uid(), name:'Unit 2', lessonCount: 6}
+          ],
+          skipDates: [], extraDates: [], overrides: {}
+        }
+      ]
+    };
+  }
+
+  let state = null;
+
+  /* ================= Cloud sync (Firebase) config helpers ================= */
+  const FB_CONFIG_KEY = 'teaching-app-firebase-config';
+  const FB_SYNC_CODE_KEY = 'teaching-app-sync-code';
+  const COLL = 'teaching-schedules';
+
+  function getSavedFirebaseConfig(){
+    try{ const raw = localStorage.getItem(FB_CONFIG_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+  }
+  function saveFirebaseConfigLocal(cfg){ try{ localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg)); }catch(e){} }
+  function clearFirebaseConfigLocal(){ try{ localStorage.removeItem(FB_CONFIG_KEY); localStorage.removeItem(FB_SYNC_CODE_KEY); }catch(e){} }
+  function getSyncCode(){ try{ return localStorage.getItem(FB_SYNC_CODE_KEY) || ''; }catch(e){ return ''; } }
+  function saveSyncCodeLocal(code){ try{ localStorage.setItem(FB_SYNC_CODE_KEY, code); }catch(e){} }
+
+  let fbApp = null, fbDb = null, fbReady = false, fbUnsub = null, lastSavedAt = 0;
+
+  async function initFirebase(cfg){
+    if (!cfg || !cfg.apiKey || !cfg.projectId) return false;
+    try{
+      if (typeof firebase === 'undefined') return false;
+      if (!fbApp){
+        fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(cfg);
+        await firebase.auth().signInAnonymously();
+        fbDb = firebase.firestore();
+      }
+      fbReady = true;
+      return true;
+    }catch(e){
+      console.error('Firebase 連線失敗', e);
+      fbReady = false;
+      return false;
+    }
+  }
+
+  function attachRealtimeSync(){
+    if (!fbReady || !fbDb) return;
+    const code = getSyncCode();
+    if (!code) return;
+    if (fbUnsub) fbUnsub();
+    fbUnsub = fbDb.collection(COLL).doc(code).onSnapshot(docSnap => {
+      if (!docSnap.exists) return;
+      const data = docSnap.data();
+      if (!data || !data.state) return;
+      if (data.updatedAt && data.updatedAt === lastSavedAt) return; // 忽略自己剛寫入的變更
+      try{
+        state = JSON.parse(data.state);
+        if (state.month === undefined || state.month === null) state.month = new Date().getMonth();
+        if (!state.viewMode) state.viewMode = 'month';
+        renderAll();
+        showToast('已同步其他裝置的更新');
+      }catch(e){ console.error(e); }
+    }, err => { console.error('雲端同步錯誤', err); updateSyncBadge('error', '雲端同步發生錯誤'); });
+  }
+
+  function updateSyncBadge(status, text){
+    [document.getElementById('syncBadge')].forEach(el=>{
+      if (!el) return;
+      el.classList.remove('connected','error');
+      if (status) el.classList.add(status);
+    });
+    const txt = document.getElementById('syncBadgeText');
+    if (txt) txt.textContent = text;
+    const line = document.getElementById('cloudStatusLine');
+    const lineTxt = document.getElementById('cloudStatusText');
+    if (line){ line.classList.remove('connected','error'); if (status) line.classList.add(status); }
+    if (lineTxt) lineTxt.textContent = text;
+  }
+
+  /* ================= Storage (load / persist) ================= */
+  const STORAGE_KEY = 'teaching-schedule-app-v1';
+
+  async function loadState(){
+    const cfg = getSavedFirebaseConfig();
+    const code = getSyncCode();
+    if (cfg && code){
+      const ok = await initFirebase(cfg);
+      if (ok){
+        try{
+          const doc = await fbDb.collection(COLL).doc(code).get();
+          updateSyncBadge('connected', '雲端同步中：'+code);
+          attachRealtimeSync();
+          if (doc.exists && doc.data().state) return JSON.parse(doc.data().state);
+          return null;
+        }catch(e){
+          console.error('雲端讀取失敗', e);
+          updateSyncBadge('error', '雲端讀取失敗，改用本機資料');
+        }
+      } else {
+        updateSyncBadge('error', '雲端連線失敗，改用本機資料');
+      }
+    }
+    try{
+      if (window.storage && window.storage.get){
+        const res = await window.storage.get(STORAGE_KEY, false);
+        if (res && res.value) return JSON.parse(res.value);
+      }
+    }catch(e){ /* not found */ }
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    }catch(e){}
+    return null;
+  }
+
+  async function persist(){
+    const cfg = getSavedFirebaseConfig();
+    const code = getSyncCode();
+    if (cfg && code && fbReady && fbDb){
+      try{
+        lastSavedAt = Date.now();
+        await fbDb.collection(COLL).doc(code).set({ state: JSON.stringify(state), updatedAt: lastSavedAt });
+        updateSyncBadge('connected', '雲端同步中：'+code);
+      }catch(e){
+        console.error('雲端儲存失敗', e);
+        updateSyncBadge('error', '雲端儲存失敗');
+      }
+    }
+    try{
+      if (window.storage && window.storage.set){ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); }
+    }catch(e){ /* ignore */ }
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){ /* ignore */ }
+  }
+  function save(){ persist(); renderAll(); }
+
+  /* ================= Schedule generation ================= */
+  function isGlobalHoliday(dateStr){
+    return state.globalHolidays.some(h => dateStr >= h.start && dateStr <= h.end);
+  }
+
+  // 依課程「單元/章節設定」與堂序（0-based index）算出該堂屬於哪個單元
+  function unitAtIndex(units, index){
+    if (!units || !units.length) return null;
+    let acc = 0;
+    for (let i=0;i<units.length;i++){
+      const cnt = Math.max(1, units[i].lessonCount||1);
+      if (index < acc + cnt){
+        return { name: units[i].name, unitIndex: i, withinUnit: index - acc + 1, unitTotal: cnt };
+      }
+      acc += cnt;
+    }
+    return null; // 超出已設定的單元範圍
+  }
+
+  // 在不寫入頁碼指標的情況下，預估某段設定會產生幾堂課（供設定畫面即時試算用）
+  function estimateLessonCount(startDate, endDate, weekdays, skipDates, extraDates){
+    if (!startDate || !endDate || startDate > endDate) return 0;
+    skipDates = skipDates || []; extraDates = extraDates || [];
+    let cur = startDate, count = 0;
+    while (cur <= endDate){
+      const d = parseDate(cur);
+      const idx = jsDayToIdx(d.getDay());
+      const isPattern = !!weekdays[idx];
+      const globalHol = isGlobalHoliday(cur);
+      const courseSkip = skipDates.includes(cur);
+      const isExtra = extraDates.includes(cur) && !globalHol;
+      if ((isPattern && !globalHol && !courseSkip) || isExtra) count++;
+      cur = addDays(cur, 1);
+    }
+    return count;
+  }
+
+  function generateSchedule(course){
+    const byDate = new Map();
+    const list = [];
+    if (!course.startDate || !course.endDate) return {byDate, list};
+    let cur = course.startDate;
+    const candidates = [];
+    while (cur <= course.endDate){
+      const d = parseDate(cur);
+      const idx = jsDayToIdx(d.getDay());
+      const isPattern = !!course.weekdays[idx];
+      const globalHol = isGlobalHoliday(cur);
+      const courseSkip = course.skipDates.includes(cur);
+      const isExtra = course.extraDates.includes(cur) && !globalHol;
+      if ((isPattern && !globalHol && !courseSkip) || isExtra){
+        candidates.push(cur);
+      }
+      cur = addDays(cur, 1);
+    }
+    let tPtr = course.textbookStartPage;
+    let sPtr = course.slideStartPage;
+    const periodsPerLesson = Math.max(1, course.periodsPerLesson || 1);
+    let periodPtr = 0;
+    candidates.forEach((dateStr, i) => {
+      const ov = course.overrides[dateStr] || {};
+      const tPages = (ov.textbookPages !== undefined && ov.textbookPages !== null) ? ov.textbookPages : course.textbookPagesPerLesson;
+      const sPages = (ov.slidePages !== undefined && ov.slidePages !== null) ? ov.slidePages : course.slidePagesPerLesson;
+      const tStart = tPtr, tEnd = tPages > 0 ? tPtr + tPages - 1 : tPtr;
+      const sStart = sPtr, sEnd = sPages > 0 ? sPtr + sPages - 1 : sPtr;
+      if (tPages > 0) tPtr = tEnd + 1;
+      if (sPages > 0) sPtr = sEnd + 1;
+      const periods = (ov.periods !== undefined && ov.periods !== null) ? ov.periods : periodsPerLesson;
+      periodPtr += periods;
+      const unitInfo = unitAtIndex(course.units, i);
+      const lesson = {
+        date: dateStr, index: i+1, tStart, tEnd, tPages, sStart, sEnd, sPages,
+        periods, totalPeriods: periodPtr,
+        unitName: unitInfo ? unitInfo.name : '', unitIndex: unitInfo ? unitInfo.unitIndex : null, withinUnit: unitInfo ? unitInfo.withinUnit : null,
+        note: ov.note || '', isExtra: course.extraDates.includes(dateStr)
+      };
+      byDate.set(dateStr, lesson);
+      list.push(lesson);
+    });
+    return {byDate, list};
+  }
+
+  function scheduleCache(){
+    const cache = {};
+    state.courses.forEach(c => { cache[c.id] = generateSchedule(c); });
+    return cache;
+  }
+
+  /* ================= Rendering: Today panel ================= */
+  function renderToday(cache){
+    const area = document.getElementById('todayArea');
+    let html = '';
+    if (isGlobalHoliday(todayStr)){
+      const h = state.globalHolidays.find(h => todayStr >= h.start && todayStr <= h.end);
+      html += `<div class="today-holiday-banner">今天是假日${h && h.label ? '：'+escapeHtml(h.label) : ''}，所有科目自動跳過。</div>`;
+    }
+    const cards = [];
+    state.courses.forEach(course => {
+      const sched = cache[course.id];
+      const lesson = sched.byDate.get(todayStr);
+      if (lesson){
+        cards.push(`
+          <div class="today-card" style="border-left-color:${course.color}">
+            <div class="course-name">${escapeHtml(course.name)}</div>
+            <div class="lesson-idx">第 ${lesson.index} 堂・${weekdayLabelOf(lesson.date)}${lesson.periods ? `・第 ${lesson.totalPeriods} 節（本堂 ${lesson.periods} 節）` : ''}</div>
+            <div class="rows">
+              ${lesson.unitName ? `<div><span class="label">單元</span>${escapeHtml(lesson.unitName)}${lesson.withinUnit ? `（第 ${lesson.withinUnit} 堂）` : ''}</div>` : ''}
+              <div><span class="label">課本</span>${lesson.tPages>0 ? `${lesson.tStart} – ${lesson.tEnd} 頁` : '無'}</div>
+              <div><span class="label">投影片</span>${lesson.sPages>0 ? `${lesson.sStart} – ${lesson.sEnd} 頁` : '無'}</div>
+            </div>
+            ${lesson.note ? `<div class="note">${escapeHtml(lesson.note)}</div>` : ''}
+          </div>`);
+      } else if (!isGlobalHoliday(todayStr)) {
+        const next = sched.list.find(l => l.date >= todayStr);
+        cards.push(`
+          <div class="today-empty">
+            <strong style="color:var(--ink);">${escapeHtml(course.name)}</strong>：今天沒有安排。
+            ${next ? `下次上課 ${next.date.slice(5)}（第 ${next.index} 堂）` : '課程已排完或尚未開始'}
+          </div>`);
+      }
+    });
+    html += `<div class="today-cards">${cards.join('') || '<div class="today-empty">尚未設定任何科目，請點右上角設定新增。</div>'}</div>`;
+    area.innerHTML = html;
+  }
+
+  /* ================= Rendering: Legend ================= */
+  function renderLegend(){
+    const area = document.getElementById('legendArea');
+    let items = state.courses.map(c => `<div class="item"><span class="swatch" style="background:${c.color}"></span>${escapeHtml(c.name)}</div>`);
+    items.push(`<div class="item"><span class="swatch" style="background:var(--holiday-bg);border:1px solid var(--line-strong);"></span>假日</div>`);
+    items.push(`<div class="item"><span class="swatch" style="box-shadow:inset 0 0 0 2px var(--today-ring);background:#fff;"></span>今天</div>`);
+    area.innerHTML = items.join('');
+  }
+
+  /* ================= Rendering: Course filter select ================= */
+  function renderCourseFilter(){
+    const sel = document.getElementById('courseFilter');
+    const opts = [`<option value="all">全部科目</option>`]
+      .concat(state.courses.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`));
+    sel.innerHTML = opts.join('');
+    sel.value = state.activeCourseId;
+  }
+
+  /* ================= Rendering: Calendar ================= */
+  function renderCalendar(cache){
+    const grid = document.getElementById('calGrid');
+    if (state.viewMode === 'year'){
+      document.getElementById('monthLabel').textContent = `${state.year} 年`;
+      grid.className = 'cal-grid mode-year';
+      let html = '';
+      for (let m=0; m<12; m++) html += renderMonth(state.year, m, cache, true);
+      grid.innerHTML = html;
+    } else {
+      document.getElementById('monthLabel').textContent = `${state.year} 年 ${state.month+1} 月`;
+      grid.className = 'cal-grid mode-month';
+      grid.innerHTML = renderMonth(state.year, state.month, cache, false);
+    }
+    attachDayCellHandlers();
+  }
+
+  function renderMonth(year, month, cache, compact){
+    const first = new Date(year, month, 1);
+    const startOffset = jsDayToIdx(first.getDay());
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    let cells = '';
+    for (let i=0; i<startOffset; i++) cells += `<div class="day-cell empty"></div>`;
+    for (let day=1; day<=daysInMonth; day++){
+      const dateStr = `${year}-${pad2(month+1)}-${pad2(day)}`;
+      cells += renderDayCell(dateStr, day, cache, compact);
+    }
+    const totalCells = startOffset + daysInMonth;
+    const trailing = (7 - (totalCells % 7)) % 7;
+    for (let i=0;i<trailing;i++) cells += `<div class="day-cell empty"></div>`;
+
+    return `
+      <div class="month-card">
+        ${compact ? `<div class="month-title">${month+1} 月</div>` : ''}
+        <div class="weekday-row">${WEEKDAY_LABELS.map(w=>`<div>${w}</div>`).join('')}</div>
+        <div class="day-grid">${cells}</div>
+      </div>`;
+  }
+
+  function renderDayCell(dateStr, dayNum, cache, compact){
+    const globalHol = isGlobalHoliday(dateStr);
+    const isToday = dateStr === todayStr;
+    let classes = ['day-cell','clickable'];
+    let inner = `<div class="num">${dayNum}</div>`;
+
+    if (state.activeCourseId === 'all'){
+      const dots = [];
+      let anyLesson = false;
+      const tags = [];
+      state.courses.forEach(c => {
+        const lesson = cache[c.id].byDate.get(dateStr);
+        if (lesson){
+          anyLesson = true;
+          dots.push(`<span style="background:${c.color}"></span>`);
+          if (!compact) tags.push(`<div class="page-tag" style="color:${c.color}">${escapeHtml(c.name)} 第${lesson.index}堂</div>`);
+        }
+      });
+      if (globalHol) classes.push('holiday');
+      if (anyLesson) classes.push('lesson');
+      if (isToday) classes.push('today');
+      if (dots.length) inner += `<div class="dots">${dots.join('')}</div>`;
+      if (!compact && tags.length) inner += tags.slice(0,2).join('');
+    } else {
+      const course = state.courses.find(c => c.id === state.activeCourseId);
+      const lesson = course ? cache[course.id].byDate.get(dateStr) : null;
+      const courseSkip = course && course.skipDates.includes(dateStr);
+      if (lesson){
+        classes.push('lesson');
+        inner += `<div class="idx-tag" style="color:${course.color}">第${lesson.index}堂${lesson.periods>1?`(${lesson.periods}節)`:''}</div>`;
+        if (!compact){
+          if (lesson.unitName) inner += `<div class="page-tag" style="color:${course.color};opacity:1;">${escapeHtml(lesson.unitName)}</div>`;
+          if (lesson.tPages>0) inner += `<div class="page-tag">課本 ${lesson.tStart}-${lesson.tEnd}</div>`;
+          if (lesson.sPages>0) inner += `<div class="page-tag">投影 ${lesson.sStart}-${lesson.sEnd}</div>`;
+          if (lesson.note) inner += `<div class="note-tag" title="${escapeHtml(lesson.note)}">${escapeHtml(lesson.note)}</div>`;
+        }
+      } else if (globalHol || courseSkip){
+        classes.push('holiday');
+      }
+      if (isToday) classes.push('today');
+    }
+    return `<div class="${classes.join(' ')}" data-date="${dateStr}" style="background:${bgFor(dateStr,cache)}">${inner}</div>`;
+  }
+
+  function bgFor(dateStr, cache){
+    if (state.activeCourseId === 'all') return '';
+    const course = state.courses.find(c => c.id === state.activeCourseId);
+    if (!course) return '';
+    const lesson = cache[course.id].byDate.get(dateStr);
+    if (lesson) return tint(course.color);
+    return '';
+  }
+  function tint(hex){
+    // produce a light tint background from a hex color
+    const c = hex.replace('#','');
+    const r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
+    return `rgba(${r},${g},${b},0.16)`;
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  /* ================= Rendering: view toggle ================= */
+  function renderViewToggle(){
+    document.querySelectorAll('#viewToggle button').forEach(b=>{
+      b.classList.toggle('active', b.getAttribute('data-view') === state.viewMode);
+    });
+  }
+
+  /* ================= Master render ================= */
+  let scheduleCacheGlobal = {};
+  function renderAll(){
+    scheduleCacheGlobal = scheduleCache();
+    renderCourseFilter();
+    renderToday(scheduleCacheGlobal);
+    renderLegend();
+    renderViewToggle();
+    renderCalendar(scheduleCacheGlobal);
+  }
+
+  /* ================= Toast ================= */
+  let toastTimer = null;
+  function showToast(msg){
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+  }
+
+  /* ================= Day modal ================= */
+  function openDayModal(dateStr){
+    const overlay = document.getElementById('dayModalOverlay');
+    const content = document.getElementById('dayModalContent');
+    const globalHol = isGlobalHoliday(dateStr);
+
+    if (state.activeCourseId === 'all'){
+      const rows = state.courses.map(c => {
+        const lesson = scheduleCacheGlobal[c.id].byDate.get(dateStr);
+        const skip = c.skipDates.includes(dateStr);
+        let status;
+        if (lesson) status = `第 ${lesson.index} 堂・課本 ${lesson.tStart}-${lesson.tEnd}・投影片 ${lesson.sStart}-${lesson.sEnd}`;
+        else if (globalHol) status = '全校假日';
+        else if (skip) status = '此科目停課';
+        else status = '非上課日';
+        return `<div class="course-list-item">
+          <div class="info"><span class="course-color-dot" style="background:${c.color}"></span>${escapeHtml(c.name)}<small>${status}</small></div>
+          <button class="btn btn-sm" data-goto-course="${c.id}">編輯此科目</button>
+        </div>`;
+      }).join('');
+      content.innerHTML = `
+        <div class="modal-header">
+          <div><h2>${dateStr}</h2><div class="modal-sub">${weekdayLabelOf(dateStr)}${globalHol?'・全校假日':''}</div></div>
+          <button class="icon-btn" id="closeDayModal">✕</button>
+        </div>
+        ${rows}
+        <hr class="modal-divider">
+        <div class="modal-actions" style="justify-content:space-between;">
+          ${globalHol
+            ? `<button class="btn btn-sm" id="unsetGlobalHoliday">取消全校假日</button>`
+            : `<button class="btn btn-sm" id="setGlobalHoliday">設為全校假日（套用所有科目）</button>`}
+          <button class="btn btn-primary btn-sm" id="closeDayModal2">關閉</button>
+        </div>`;
+      overlay.classList.add('open');
+      content.querySelectorAll('[data-goto-course]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          overlay.classList.remove('open');
+          state.activeCourseId = btn.getAttribute('data-goto-course');
+          save();
+          openDayModal(dateStr);
+        });
+      });
+      document.getElementById('closeDayModal').addEventListener('click', ()=>overlay.classList.remove('open'));
+      document.getElementById('closeDayModal2').addEventListener('click', ()=>overlay.classList.remove('open'));
+      const gBtn = document.getElementById('setGlobalHoliday');
+      if (gBtn) gBtn.addEventListener('click', ()=>{
+        state.globalHolidays.push({id:uid(), label:'臨時假日', start:dateStr, end:dateStr});
+        save(); overlay.classList.remove('open');
+        showToast('已設為全校假日，後續課程已自動遞補');
+      });
+      const ugBtn = document.getElementById('unsetGlobalHoliday');
+      if (ugBtn) ugBtn.addEventListener('click', ()=>{
+        state.globalHolidays = state.globalHolidays.filter(h => !(dateStr>=h.start && dateStr<=h.end));
+        save(); overlay.classList.remove('open');
+        showToast('已取消該假日');
+      });
+      return;
+    }
+
+    // single-course context
+    const course = state.courses.find(c => c.id === state.activeCourseId);
+    const lesson = scheduleCacheGlobal[course.id].byDate.get(dateStr);
+    const courseSkip = course.skipDates.includes(dateStr);
+    const isExtra = course.extraDates.includes(dateStr);
+
+    let bodyHtml = '';
+    if (lesson){
+      bodyHtml = `
+        <p style="color:var(--ink-soft);font-size:12px;margin:-6px 0 12px;">
+          第 ${lesson.index} 堂・累計 ${lesson.totalPeriods} 節
+          ${lesson.unitName ? `・所屬單元：${escapeHtml(lesson.unitName)}（本單元第 ${lesson.withinUnit} 堂）` : ''}
+        </p>
+        <div class="field-row">
+          <div class="field" style="flex:0 0 140px;"><label>本堂節數</label><input type="number" id="editPeriods" min="1" value="${lesson.periods}"></div>
+          <div class="field"><span style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">預設每堂 ${course.periodsPerLesson||1} 節，此堂可單獨調整（例如只上1節）</span></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>課本起始頁</label><input type="number" id="editTStart" value="${lesson.tStart}"></div>
+          <div class="field"><label>課本頁數</label><input type="number" id="editTPages" min="0" value="${lesson.tPages}"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>投影片起始頁</label><input type="number" id="editSStart" value="${lesson.sStart}"></div>
+          <div class="field"><label>投影片頁數</label><input type="number" id="editSPages" min="0" value="${lesson.sPages}"></div>
+        </div>
+        <div class="field"><label>備註</label><textarea id="editNote">${escapeHtml(lesson.note)}</textarea></div>
+        <div class="modal-actions">
+          <button class="btn btn-danger btn-sm" id="btnClearOverride">還原為預設頁數／節數</button>
+          <button class="btn btn-danger btn-sm" id="btnSkipThis">設為停課（此科目跳過，後續遞補）</button>
+          <button class="btn btn-primary btn-sm" id="btnSaveOverride">儲存（自動套用到後續課程）</button>
+        </div>
+        <p style="color:var(--muted);font-size:12px;margin-top:10px;">提示：調整此堂頁數或節數後，後面所有堂次會自動依序接續重新計算頁碼與累計節數。</p>`;
+    } else if (globalHol){
+      bodyHtml = `<p style="color:var(--ink-soft);">此日為全校假日，所有科目自動跳過。</p>
+        <div class="modal-actions"><button class="btn btn-sm" id="btnGotoAllForHoliday">前往「假日管理」調整</button></div>`;
+    } else if (courseSkip){
+      bodyHtml = `<p style="color:var(--ink-soft);">此日已被設定為「${escapeHtml(course.name)}」個別停課。</p>
+        <div class="modal-actions"><button class="btn btn-primary btn-sm" id="btnUnskip">取消停課</button></div>`;
+    } else {
+      bodyHtml = `<p style="color:var(--ink-soft);">此日非「${escapeHtml(course.name)}」的排定上課日。</p>
+        <div class="modal-actions"><button class="btn btn-primary btn-sm" id="btnAddExtra">設為此科目的額外上課日（補課）</button></div>`;
+    }
+
+    content.innerHTML = `
+      <div class="modal-header">
+        <div><h2>${dateStr}</h2><div class="modal-sub">${weekdayLabelOf(dateStr)}・${escapeHtml(course.name)}${isExtra?'（補課日）':''}</div></div>
+        <button class="icon-btn" id="closeDayModal">✕</button>
+      </div>
+      ${bodyHtml}`;
+    overlay.classList.add('open');
+    document.getElementById('closeDayModal').addEventListener('click', ()=>overlay.classList.remove('open'));
+
+    const saveBtn = document.getElementById('btnSaveOverride');
+    if (saveBtn) saveBtn.addEventListener('click', ()=>{
+      const tStartVal = parseInt(document.getElementById('editTStart').value,10);
+      const tPages = parseInt(document.getElementById('editTPages').value,10) || 0;
+      const sStartVal = parseInt(document.getElementById('editSStart').value,10);
+      const note = document.getElementById('editNote').value;
+      const periodsVal = Math.max(1, parseInt(document.getElementById('editPeriods').value,10) || (course.periodsPerLesson||1));
+      // adjust course pointers if the start value for this lesson changed relative to computed start
+      if (!isNaN(tStartVal) && tStartVal !== lesson.tStart){
+        // shift base pointer by the difference so this lesson starts where teacher specified
+        course.textbookStartPage = course.textbookStartPage + (tStartVal - lesson.tStart);
+      }
+      if (!isNaN(sStartVal) && sStartVal !== lesson.sStart){
+        course.slideStartPage = course.slideStartPage + (sStartVal - lesson.sStart);
+      }
+      course.overrides[dateStr] = {
+        textbookPages: tPages,
+        slidePages: parseInt(document.getElementById('editSPages').value,10) || 0,
+        periods: periodsVal,
+        note
+      };
+      save(); overlay.classList.remove('open');
+      showToast('已儲存，後續課程已自動更新');
+    });
+    const clearBtn = document.getElementById('btnClearOverride');
+    if (clearBtn) clearBtn.addEventListener('click', ()=>{
+      delete course.overrides[dateStr];
+      save(); overlay.classList.remove('open');
+      showToast('已還原為預設頁數');
+    });
+    const skipBtn = document.getElementById('btnSkipThis');
+    if (skipBtn) skipBtn.addEventListener('click', ()=>{
+      course.skipDates.push(dateStr);
+      delete course.overrides[dateStr];
+      save(); overlay.classList.remove('open');
+      showToast('已設為停課，後續堂次自動往前遞補');
+    });
+    const unskipBtn = document.getElementById('btnUnskip');
+    if (unskipBtn) unskipBtn.addEventListener('click', ()=>{
+      course.skipDates = course.skipDates.filter(d => d !== dateStr);
+      save(); overlay.classList.remove('open');
+      showToast('已取消停課');
+    });
+    const extraBtn = document.getElementById('btnAddExtra');
+    if (extraBtn) extraBtn.addEventListener('click', ()=>{
+      course.extraDates.push(dateStr);
+      save(); overlay.classList.remove('open');
+      showToast('已新增為額外上課日');
+    });
+    const gotoAll = document.getElementById('btnGotoAllForHoliday');
+    if (gotoAll) gotoAll.addEventListener('click', ()=>{
+      overlay.classList.remove('open');
+      openSettingsModal('holidays');
+    });
+  }
+
+  function attachDayCellHandlers(){
+    document.querySelectorAll('.day-cell.clickable').forEach(cell => {
+      cell.addEventListener('click', ()=> openDayModal(cell.getAttribute('data-date')));
+    });
+  }
+
+  /* ================= Settings modal: courses & holidays ================= */
+  function openSettingsModal(defaultTab){
+    document.getElementById('settingsModalOverlay').classList.add('open');
+    renderCourseListSettings();
+    renderHolidayListSettings();
+    const cfg = getSavedFirebaseConfig();
+    const code = getSyncCode();
+    document.getElementById('fbApiKey').value = cfg ? cfg.apiKey||'' : '';
+    document.getElementById('fbAuthDomain').value = cfg ? cfg.authDomain||'' : '';
+    document.getElementById('fbProjectId').value = cfg ? cfg.projectId||'' : '';
+    document.getElementById('fbStorageBucket').value = cfg ? cfg.storageBucket||'' : '';
+    document.getElementById('fbSenderId').value = cfg ? cfg.messagingSenderId||'' : '';
+    document.getElementById('fbAppId').value = cfg ? cfg.appId||'' : '';
+    document.getElementById('fbSyncCode').value = code || '';
+    updateSyncBadge(fbReady ? 'connected' : null, fbReady ? '雲端同步中：'+code : '尚未連接雲端同步');
+    if (defaultTab) switchSettingsTab(defaultTab);
+  }
+  function switchSettingsTab(name){
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.getAttribute('data-tab')===name));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active', p.id === 'tab-'+name));
+  }
+
+  function renderCourseListSettings(){
+    const area = document.getElementById('courseListArea');
+    if (!state.courses.length){ area.innerHTML = `<div class="empty-state">尚未新增任何科目</div>`; return; }
+    area.innerHTML = state.courses.map(c => `
+      <div class="course-list-item">
+        <div class="info"><span class="course-color-dot" style="background:${c.color}"></span>${escapeHtml(c.name)}
+          <small>${c.startDate} ~ ${c.endDate}・每堂${c.periodsPerLesson||1}節${(c.units&&c.units.length) ? `・${c.units.length}個單元` : ''}</small>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" data-edit-course="${c.id}">編輯</button>
+          <button class="btn btn-sm btn-danger" data-del-course="${c.id}">刪除</button>
+        </div>
+      </div>`).join('');
+    area.querySelectorAll('[data-edit-course]').forEach(b=>b.addEventListener('click', ()=>openCourseEdit(b.getAttribute('data-edit-course'))));
+    area.querySelectorAll('[data-del-course]').forEach(b=>b.addEventListener('click', ()=>{
+      const id = b.getAttribute('data-del-course');
+      const c = state.courses.find(x=>x.id===id);
+      if (confirm(`確定要刪除科目「${c.name}」嗎？此動作無法復原。`)){
+        state.courses = state.courses.filter(x=>x.id!==id);
+        if (state.activeCourseId === id) state.activeCourseId = 'all';
+        save(); renderCourseListSettings();
+      }
+    }));
+  }
+
+  function renderHolidayListSettings(){
+    const area = document.getElementById('holidayListArea');
+    if (!state.globalHolidays.length){ area.innerHTML = `<div class="empty-state">尚未設定假日</div>`; return; }
+    area.innerHTML = state.globalHolidays
+      .slice().sort((a,b)=>a.start<b.start?-1:1)
+      .map(h => `
+      <div class="holiday-list-item">
+        <div class="info">${escapeHtml(h.label||'假日')}<small>${h.start}${h.end!==h.start ? ' ~ '+h.end : ''}</small></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" data-edit-holiday="${h.id}">編輯</button>
+          <button class="btn btn-sm btn-danger" data-del-holiday="${h.id}">刪除</button>
+        </div>
+      </div>`).join('');
+    area.querySelectorAll('[data-edit-holiday]').forEach(b=>b.addEventListener('click', ()=>openHolidayEdit(b.getAttribute('data-edit-holiday'))));
+    area.querySelectorAll('[data-del-holiday]').forEach(b=>b.addEventListener('click', ()=>{
+      const id = b.getAttribute('data-del-holiday');
+      state.globalHolidays = state.globalHolidays.filter(h=>h.id!==id);
+      save(); renderHolidayListSettings();
+    }));
+  }
+
+  /* ---- Course edit modal ---- */
+  function openCourseEdit(courseId){
+    const isNew = !courseId;
+    const course = isNew ? {
+      id: uid(), name:'新科目', color: COLORS[state.courses.length % COLORS.length],
+      startDate: `${state.year}-09-01`, endDate: `${state.year+1}-01-20`,
+      weekdays: [true,false,true,false,true,false,false],
+      textbookStartPage:1, textbookPagesPerLesson:5,
+      slideStartPage:1, slidePagesPerLesson:10,
+      periodsPerLesson:1, units:[],
+      skipDates:[], extraDates:[], overrides:{}
+    } : state.courses.find(c=>c.id===courseId);
+
+    const overlay = document.getElementById('courseEditOverlay');
+    const content = document.getElementById('courseEditContent');
+    content.innerHTML = `
+      <div class="modal-header">
+        <h2>${isNew?'新增科目':'編輯科目'}</h2>
+        <button class="icon-btn" id="closeCourseEdit">✕</button>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>科目名稱</label><input type="text" id="ceName" value="${escapeHtml(course.name)}"></div>
+        <div class="field"><label>顏色標示</label>
+          <div style="display:flex;gap:6px;">
+            ${COLORS.map(col=>`<button type="button" data-color="${col}" style="width:26px;height:26px;border-radius:50%;background:${col};border:2px solid ${col===course.color?'var(--ink)':'transparent'};cursor:pointer;"></button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>開始日期</label><input type="date" id="ceStart" value="${course.startDate}"></div>
+        <div class="field"><label>結束日期</label><input type="date" id="ceEnd" value="${course.endDate}"></div>
+      </div>
+      <div class="field">
+        <label>每週上課日</label>
+        <div class="weekday-picker">
+          ${WEEKDAY_LABELS.map((w,i)=>`<button type="button" data-wd="${i}" class="${course.weekdays[i]?'active':''}">${w}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex:0 0 160px;"><label>每次上課節數</label><input type="number" id="cePeriods" min="1" value="${course.periodsPerLesson||1}"></div>
+        <div class="field"><span id="cePeriodsHint" style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">每堂實際上課的節數（例如連堂2節），用於累計總節數</span></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>課本起始頁</label><input type="number" id="ceTStart" value="${course.textbookStartPage}"></div>
+        <div class="field"><label>每次上課頁數</label><input type="number" id="ceTPages" value="${course.textbookPagesPerLesson}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>投影片起始頁</label><input type="number" id="ceSStart" value="${course.slideStartPage}"></div>
+        <div class="field"><label>每次上課頁數</label><input type="number" id="ceSPages" value="${course.slidePagesPerLesson}"></div>
+      </div>
+      <hr class="modal-divider">
+      <div class="field">
+        <label>單元 / 章節設定（依序設定每個單元所需堂數，課表會自動依堂序標示所屬單元）</label>
+        <div id="ceUnitsList" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
+          <button type="button" class="btn btn-sm" id="ceAddUnit">＋ 新增單元</button>
+          <span id="ceUnitsSummary" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" id="ceCancel">取消</button>
+        <button class="btn btn-primary btn-sm" id="ceSave">儲存科目</button>
+      </div>`;
+    let pickedColor = course.color;
+    content.querySelectorAll('[data-color]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        pickedColor = btn.getAttribute('data-color');
+        content.querySelectorAll('[data-color]').forEach(b2=>b2.style.borderColor = (b2.getAttribute('data-color')===pickedColor?'var(--ink)':'transparent'));
+      });
+    });
+    const weekdaysLocal = course.weekdays.slice();
+    content.querySelectorAll('[data-wd]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const i = parseInt(btn.getAttribute('data-wd'),10);
+        weekdaysLocal[i] = !weekdaysLocal[i];
+        btn.classList.toggle('active', weekdaysLocal[i]);
+        updateUnitsSummary();
+      });
+    });
+
+    /* ---- 單元 / 章節設定編輯區 ---- */
+    const unitsLocal = (course.units || []).map(u => ({ id: u.id || uid(), name: u.name || '', lessonCount: u.lessonCount || 1 }));
+    function renderUnitsList(){
+      const list = document.getElementById('ceUnitsList');
+      if (!list) return;
+      if (!unitsLocal.length){
+        list.innerHTML = `<div class="empty-state" style="padding:2px 0;">尚未設定單元，課表將只依頁碼排課</div>`;
+      } else {
+        list.innerHTML = unitsLocal.map((u,idx)=>`
+          <div class="field-row" data-uidx="${idx}" style="margin-bottom:0;align-items:center;">
+            <div class="field" style="flex:2 1 160px;"><input type="text" class="unit-name" placeholder="單元名稱" value="${escapeHtml(u.name)}"></div>
+            <div class="field" style="flex:0 0 90px;"><input type="number" class="unit-count" min="1" value="${u.lessonCount}"></div>
+            <button type="button" class="icon-btn btn-sm unit-remove" title="刪除此單元" style="width:30px;height:30px;flex:0 0 auto;">✕</button>
+          </div>`).join('');
+      }
+      list.querySelectorAll('[data-uidx]').forEach(row=>{
+        const idx = parseInt(row.getAttribute('data-uidx'),10);
+        row.querySelector('.unit-name').addEventListener('input', e=>{ unitsLocal[idx].name = e.target.value; });
+        row.querySelector('.unit-count').addEventListener('input', e=>{
+          unitsLocal[idx].lessonCount = parseInt(e.target.value,10) || 1;
+          updateUnitsSummary();
+        });
+        row.querySelector('.unit-remove').addEventListener('click', ()=>{
+          unitsLocal.splice(idx,1);
+          renderUnitsList(); updateUnitsSummary();
+        });
+      });
+    }
+    function updateUnitsSummary(){
+      const summary = document.getElementById('ceUnitsSummary');
+      if (!summary) return;
+      const totalUnitLessons = unitsLocal.reduce((s,u)=>s+(u.lessonCount||0),0);
+      const startDate = document.getElementById('ceStart').value;
+      const endDate = document.getElementById('ceEnd').value;
+      const estTotal = estimateLessonCount(startDate, endDate, weekdaysLocal, course.skipDates||[], course.extraDates||[]);
+      if (!unitsLocal.length){ summary.textContent = `預估此排課設定共 ${estTotal} 堂`; summary.style.color = 'var(--muted)'; return; }
+      summary.textContent = `單元共分配 ${totalUnitLessons} 堂／預估排課共 ${estTotal} 堂`;
+      summary.style.color = totalUnitLessons > estTotal ? 'var(--danger)' : (totalUnitLessons < estTotal ? 'var(--accent-dark)' : 'var(--today-ring)');
+    }
+    renderUnitsList();
+    updateUnitsSummary();
+    document.getElementById('ceAddUnit').addEventListener('click', ()=>{
+      unitsLocal.push({id:uid(), name:'', lessonCount:1});
+      renderUnitsList(); updateUnitsSummary();
+    });
+    document.getElementById('ceStart').addEventListener('input', updateUnitsSummary);
+    document.getElementById('ceEnd').addEventListener('input', updateUnitsSummary);
+
+    overlay.classList.add('open');
+    document.getElementById('closeCourseEdit').addEventListener('click', ()=>overlay.classList.remove('open'));
+    document.getElementById('ceCancel').addEventListener('click', ()=>overlay.classList.remove('open'));
+    document.getElementById('ceSave').addEventListener('click', ()=>{
+      const name = document.getElementById('ceName').value.trim() || '未命名科目';
+      const startDate = document.getElementById('ceStart').value;
+      const endDate = document.getElementById('ceEnd').value;
+      const textbookStartPage = parseInt(document.getElementById('ceTStart').value,10) || 0;
+      const textbookPagesPerLesson = parseInt(document.getElementById('ceTPages').value,10) || 0;
+      const slideStartPage = parseInt(document.getElementById('ceSStart').value,10) || 0;
+      const slidePagesPerLesson = parseInt(document.getElementById('ceSPages').value,10) || 0;
+      const periodsPerLesson = Math.max(1, parseInt(document.getElementById('cePeriods').value,10) || 1);
+      const units = unitsLocal.filter(u=>u.name && u.name.trim()).map(u=>({id:u.id, name:u.name.trim(), lessonCount:Math.max(1, u.lessonCount||1)}));
+      if (!startDate || !endDate || startDate > endDate){
+        showToast('請確認日期範圍正確');
+        return;
+      }
+      const updated = Object.assign({}, course, {
+        name, color: pickedColor, startDate, endDate, weekdays: weekdaysLocal,
+        textbookStartPage, textbookPagesPerLesson, slideStartPage, slidePagesPerLesson,
+        periodsPerLesson, units
+      });
+      if (isNew){ state.courses.push(updated); state.activeCourseId = updated.id; }
+      else { Object.assign(course, updated); }
+      save(); overlay.classList.remove('open'); renderCourseListSettings();
+      showToast('科目已儲存');
+    });
+  }
+
+  /* ---- Holiday edit modal ---- */
+  function openHolidayEdit(holidayId, prefillDate){
+    const isNew = !holidayId;
+    const h = isNew ? {id:uid(), label:'假期', start: prefillDate || todayStr, end: prefillDate || todayStr}
+                    : state.globalHolidays.find(x=>x.id===holidayId);
+    const overlay = document.getElementById('holidayEditOverlay');
+    const content = document.getElementById('holidayEditContent');
+    content.innerHTML = `
+      <div class="modal-header">
+        <h2>${isNew?'新增假期區間':'編輯假期'}</h2>
+        <button class="icon-btn" id="closeHolidayEdit">✕</button>
+      </div>
+      <div class="field"><label>假期名稱</label><input type="text" id="heLabel" value="${escapeHtml(h.label||'')}"></div>
+      <div class="field-row">
+        <div class="field"><label>開始日期</label><input type="date" id="heStart" value="${h.start}"></div>
+        <div class="field"><label>結束日期</label><input type="date" id="heEnd" value="${h.end}"></div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;">此區間內，所有科目的課程會自動跳過並依序遞補到後面的上課日。</p>
+      <div class="modal-actions">
+        <button class="btn btn-sm" id="heCancel">取消</button>
+        <button class="btn btn-primary btn-sm" id="heSave">儲存</button>
+      </div>`;
+    overlay.classList.add('open');
+    document.getElementById('closeHolidayEdit').addEventListener('click', ()=>overlay.classList.remove('open'));
+    document.getElementById('heCancel').addEventListener('click', ()=>overlay.classList.remove('open'));
+    document.getElementById('heSave').addEventListener('click', ()=>{
+      const label = document.getElementById('heLabel').value.trim();
+      const start = document.getElementById('heStart').value;
+      const end = document.getElementById('heEnd').value;
+      if (!start || !end || start > end){ showToast('請確認日期範圍正確'); return; }
+      if (isNew){ state.globalHolidays.push({id:h.id, label, start, end}); }
+      else { h.label = label; h.start = start; h.end = end; }
+      save(); overlay.classList.remove('open'); renderHolidayListSettings();
+      showToast('假期已儲存');
+    });
+  }
+
+  /* ================= Wire up static controls ================= */
+  function wireControls(){
+    document.getElementById('prevMonth').addEventListener('click', ()=>{
+      if (state.viewMode === 'year'){ state.year--; }
+      else { state.month--; if (state.month < 0){ state.month = 11; state.year--; } }
+      save();
+    });
+    document.getElementById('nextMonth').addEventListener('click', ()=>{
+      if (state.viewMode === 'year'){ state.year++; }
+      else { state.month++; if (state.month > 11){ state.month = 0; state.year++; } }
+      save();
+    });
+    document.getElementById('gotoTodayBtn').addEventListener('click', ()=>{
+      const n = new Date(); state.year = n.getFullYear(); state.month = n.getMonth(); save();
+    });
+    document.querySelectorAll('#viewToggle button').forEach(b=>{
+      b.addEventListener('click', ()=>{ state.viewMode = b.getAttribute('data-view'); save(); });
+    });
+    document.getElementById('syncBadge').addEventListener('click', ()=>openSettingsModal('cloud'));
+    document.getElementById('courseFilter').addEventListener('change', e=>{ state.activeCourseId = e.target.value; save(); });
+    document.getElementById('openSettings').addEventListener('click', ()=>openSettingsModal('courses'));
+    document.getElementById('closeSettings').addEventListener('click', ()=>document.getElementById('settingsModalOverlay').classList.remove('open'));
+    document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click', ()=>switchSettingsTab(b.getAttribute('data-tab'))));
+    document.getElementById('addCourseBtn').addEventListener('click', ()=>openCourseEdit(null));
+    document.getElementById('addHolidayBtn').addEventListener('click', ()=>openHolidayEdit(null));
+    document.getElementById('addHolidayQuick').addEventListener('click', ()=>openHolidayEdit(null, todayStr));
+    document.getElementById('resetDataBtn').addEventListener('click', ()=>{
+      if (confirm('確定要清除所有資料並重設為預設範例嗎？此動作無法復原。')){
+        state = seedData();
+        save();
+        showToast('已重設為預設範例');
+      }
+    });
+    document.getElementById('cloudConnectBtn').addEventListener('click', async ()=>{
+      const cfg = {
+        apiKey: document.getElementById('fbApiKey').value.trim(),
+        authDomain: document.getElementById('fbAuthDomain').value.trim(),
+        projectId: document.getElementById('fbProjectId').value.trim(),
+        storageBucket: document.getElementById('fbStorageBucket').value.trim(),
+        messagingSenderId: document.getElementById('fbSenderId').value.trim(),
+        appId: document.getElementById('fbAppId').value.trim()
+      };
+      const code = document.getElementById('fbSyncCode').value.trim();
+      if (!cfg.apiKey || !cfg.projectId || !code){
+        showToast('請填寫 API Key、Project ID 與同步代碼');
+        return;
+      }
+      updateSyncBadge(null, '連接中…');
+      const ok = await initFirebase(cfg);
+      if (!ok){
+        updateSyncBadge('error', '連接失敗，請檢查設定值');
+        showToast('Firebase 連接失敗，請確認設定值是否正確');
+        return;
+      }
+      saveFirebaseConfigLocal(cfg);
+      saveSyncCodeLocal(code);
+      try{
+        const doc = await fbDb.collection(COLL).doc(code).get();
+        if (doc.exists && doc.data().state){
+          if (confirm('這組同步代碼已有雲端資料，要載入雲端資料嗎？（選擇取消將改用目前的本機資料覆蓋雲端）')){
+            state = JSON.parse(doc.data().state);
+            if (state.month === undefined || state.month === null) state.month = new Date().getMonth();
+            if (!state.viewMode) state.viewMode = 'month';
+          }
+        }
+      }catch(e){ console.error(e); }
+      attachRealtimeSync();
+      save();
+      updateSyncBadge('connected', '雲端同步中：'+code);
+      showToast('已連接雲端同步');
+    });
+    document.getElementById('cloudDisconnectBtn').addEventListener('click', ()=>{
+      if (fbUnsub){ fbUnsub(); fbUnsub = null; }
+      clearFirebaseConfigLocal();
+      fbReady = false;
+      updateSyncBadge(null, '未連接雲端');
+      showToast('已中斷雲端同步（僅本機保留資料）');
+    });
+    // click outside modal closes it
+    [ 'dayModalOverlay','settingsModalOverlay','courseEditOverlay','holidayEditOverlay' ].forEach(id=>{
+      const el = document.getElementById(id);
+      el.addEventListener('click', e=>{ if (e.target === el) el.classList.remove('open'); });
+    });
+  }
+
+  /* ================= Init ================= */
+  async function init(){
+    const loaded = await loadState();
+    state = loaded || seedData();
+    if (state.month === undefined || state.month === null) state.month = new Date().getMonth();
+    if (!state.viewMode) state.viewMode = 'month';
+    if (!loaded) persist();
+    wireControls();
+    renderAll();
+    document.getElementById('loadingScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
