@@ -303,7 +303,10 @@
 
     <div class="tab-panel active" id="tab-courses">
       <div id="courseListArea"></div>
-      <button class="btn btn-primary btn-sm" id="addCourseBtn" style="margin-top:6px;">＋ 新增科目</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+        <button class="btn btn-primary btn-sm" id="addCourseBtn">＋ 新增科目</button>
+        <button class="btn btn-sm" id="btnImportTimetable">📋 依課表辨識科目</button>
+      </div>
     </div>
 
     <div class="tab-panel" id="tab-holidays">
@@ -350,6 +353,10 @@
 <!-- Course Edit Modal -->
 <div class="modal-overlay" id="courseEditOverlay">
   <div class="modal" id="courseEditContent" style="max-width:520px;"></div>
+</div>
+
+<div class="modal-overlay" id="timetableImportOverlay">
+  <div class="modal" id="timetableImportContent" style="max-width:760px;"></div>
 </div>
 
 <!-- Holiday Edit Modal -->
@@ -400,12 +407,13 @@
           weekdays: [true,false,true,false,true,false,false], // 一三五
           textbookStartPage: 1, textbookPagesPerLesson: 6,
           slideStartPage: 1, slidePagesPerLesson: 12,
-          periodsPerLesson: 2,
+          periodsPerLesson: 2, periodsByWeekday: [2,1,2,1,2,1,1],
           units: [
             {id: uid(), name:'第一單元・整數與因數', lessonCount: 8},
             {id: uid(), name:'第二單元・分數運算', lessonCount: 10},
             {id: uid(), name:'第三單元・幾何圖形', lessonCount: 8}
           ],
+          orientation: {enabled:true, note:'班規說明・座位安排'},
           skipDates: [], extraDates: [], overrides: {}
         },
         {
@@ -414,11 +422,12 @@
           weekdays: [false,true,false,true,false,false,false], // 二四
           textbookStartPage: 1, textbookPagesPerLesson: 4,
           slideStartPage: 1, slidePagesPerLesson: 8,
-          periodsPerLesson: 1,
+          periodsPerLesson: 1, periodsByWeekday: [1,1,1,1,1,1,1],
           units: [
             {id: uid(), name:'Unit 1', lessonCount: 6},
             {id: uid(), name:'Unit 2', lessonCount: 6}
           ],
+          orientation: {enabled:false, note:'班規說明・座位安排'},
           skipDates: [], extraDates: [], overrides: {}
         }
       ]
@@ -587,6 +596,36 @@
     return count;
   }
 
+  // 同 estimateLessonCount，但同時依「每星期幾節數」推算學期總節數（供設定畫面即時試算用）
+  function estimateLessonStats(startDate, endDate, weekdays, periodsByWeekday, defaultPeriods, skipDates, extraDates){
+    if (!startDate || !endDate || startDate > endDate) return {count:0, periods:0};
+    skipDates = skipDates || []; extraDates = extraDates || [];
+    let cur = startDate, count = 0, periods = 0;
+    while (cur <= endDate){
+      const d = parseDate(cur);
+      const idx = jsDayToIdx(d.getDay());
+      const isPattern = !!weekdays[idx];
+      const globalHol = isGlobalHoliday(cur);
+      const courseSkip = skipDates.includes(cur);
+      const isExtra = extraDates.includes(cur) && !globalHol;
+      if ((isPattern && !globalHol && !courseSkip) || isExtra){
+        count++;
+        const p = (periodsByWeekday && typeof periodsByWeekday[idx] === 'number' && periodsByWeekday[idx] > 0) ? periodsByWeekday[idx] : Math.max(1, defaultPeriods||1);
+        periods += p;
+      }
+      cur = addDays(cur, 1);
+    }
+    return {count, periods};
+  }
+
+  // 依星期幾取得該課程「當日節數」；若沒有針對該星期別設定，退回每次上課節數的預設值
+  function periodsForWeekday(course, idx){
+    if (course.periodsByWeekday && typeof course.periodsByWeekday[idx] === 'number' && course.periodsByWeekday[idx] > 0){
+      return course.periodsByWeekday[idx];
+    }
+    return Math.max(1, course.periodsPerLesson || 1);
+  }
+
   function generateSchedule(course){
     const byDate = new Map();
     const list = [];
@@ -607,23 +646,31 @@
     }
     let tPtr = course.textbookStartPage;
     let sPtr = course.slideStartPage;
-    const periodsPerLesson = Math.max(1, course.periodsPerLesson || 1);
     let periodPtr = 0;
+    let unitProgress = 0; // 只有非開學安排的堂次才會推進單元進度
+    const orientationOn = !!(course.orientation && course.orientation.enabled);
+    const orientationEnd = orientationOn ? addDays(course.startDate, 6) : null;
     candidates.forEach((dateStr, i) => {
       const ov = course.overrides[dateStr] || {};
-      const tPages = (ov.textbookPages !== undefined && ov.textbookPages !== null) ? ov.textbookPages : course.textbookPagesPerLesson;
-      const sPages = (ov.slidePages !== undefined && ov.slidePages !== null) ? ov.slidePages : course.slidePagesPerLesson;
+      const isOrientation = orientationOn && dateStr <= orientationEnd;
+      const defaultTPages = isOrientation ? 0 : course.textbookPagesPerLesson;
+      const defaultSPages = isOrientation ? 0 : course.slidePagesPerLesson;
+      const tPages = (ov.textbookPages !== undefined && ov.textbookPages !== null) ? ov.textbookPages : defaultTPages;
+      const sPages = (ov.slidePages !== undefined && ov.slidePages !== null) ? ov.slidePages : defaultSPages;
       const tStart = tPtr, tEnd = tPages > 0 ? tPtr + tPages - 1 : tPtr;
       const sStart = sPtr, sEnd = sPages > 0 ? sPtr + sPages - 1 : sPtr;
       if (tPages > 0) tPtr = tEnd + 1;
       if (sPages > 0) sPtr = sEnd + 1;
-      const periods = (ov.periods !== undefined && ov.periods !== null) ? ov.periods : periodsPerLesson;
+      const idx = jsDayToIdx(parseDate(dateStr).getDay());
+      const periods = (ov.periods !== undefined && ov.periods !== null) ? ov.periods : periodsForWeekday(course, idx);
       periodPtr += periods;
-      const unitInfo = unitAtIndex(course.units, i);
+      const unitInfo = isOrientation ? null : unitAtIndex(course.units, unitProgress);
+      if (!isOrientation) unitProgress++;
       const lesson = {
         date: dateStr, index: i+1, tStart, tEnd, tPages, sStart, sEnd, sPages,
         periods, totalPeriods: periodPtr,
         unitName: unitInfo ? unitInfo.name : '', unitIndex: unitInfo ? unitInfo.unitIndex : null, withinUnit: unitInfo ? unitInfo.withinUnit : null,
+        isOrientation, orientationNote: isOrientation ? (course.orientation.note || '班規說明・座位安排') : '',
         note: ov.note || '', isExtra: course.extraDates.includes(dateStr)
       };
       byDate.set(dateStr, lesson);
@@ -655,11 +702,12 @@
           <div class="today-card" style="border-left-color:${course.color}">
             <div class="course-name">${escapeHtml(course.name)}</div>
             <div class="lesson-idx">第 ${lesson.index} 堂・${weekdayLabelOf(lesson.date)}${lesson.periods ? `・第 ${lesson.totalPeriods} 節（本堂 ${lesson.periods} 節）` : ''}</div>
+            ${lesson.isOrientation ? `<div class="rows"><div><span class="label">開學安排</span>${escapeHtml(lesson.orientationNote)}</div></div>` : `
             <div class="rows">
               ${lesson.unitName ? `<div><span class="label">單元</span>${escapeHtml(lesson.unitName)}${lesson.withinUnit ? `（第 ${lesson.withinUnit} 堂）` : ''}</div>` : ''}
               <div><span class="label">課本</span>${lesson.tPages>0 ? `${lesson.tStart} – ${lesson.tEnd} 頁` : '無'}</div>
               <div><span class="label">投影片</span>${lesson.sPages>0 ? `${lesson.sStart} – ${lesson.sEnd} 頁` : '無'}</div>
-            </div>
+            </div>`}
             ${lesson.note ? `<div class="note">${escapeHtml(lesson.note)}</div>` : ''}
           </div>`);
       } else if (!isGlobalHoliday(todayStr)) {
@@ -763,7 +811,8 @@
         classes.push('lesson');
         inner += `<div class="idx-tag" style="color:${course.color}">第${lesson.index}堂${lesson.periods>1?`(${lesson.periods}節)`:''}</div>`;
         if (!compact){
-          if (lesson.unitName) inner += `<div class="page-tag" style="color:${course.color};opacity:1;">${escapeHtml(lesson.unitName)}</div>`;
+          if (lesson.isOrientation) inner += `<div class="page-tag" style="color:#92400e;">🪑 ${escapeHtml(lesson.orientationNote)}</div>`;
+          else if (lesson.unitName) inner += `<div class="page-tag" style="color:${course.color};opacity:1;">${escapeHtml(lesson.unitName)}</div>`;
           if (lesson.tPages>0) inner += `<div class="page-tag">課本 ${lesson.tStart}-${lesson.tEnd}</div>`;
           if (lesson.sPages>0) inner += `<div class="page-tag">投影 ${lesson.sStart}-${lesson.sEnd}</div>`;
           if (lesson.note) inner += `<div class="note-tag" title="${escapeHtml(lesson.note)}">${escapeHtml(lesson.note)}</div>`;
@@ -895,6 +944,7 @@
           第 ${lesson.index} 堂・累計 ${lesson.totalPeriods} 節
           ${lesson.unitName ? `・所屬單元：${escapeHtml(lesson.unitName)}（本單元第 ${lesson.withinUnit} 堂）` : ''}
         </p>
+        ${lesson.isOrientation ? `<p style="background:#fef3c7;color:#92400e;font-size:12px;padding:8px 10px;border-radius:8px;margin:-4px 0 12px;">🪑 開學安排：${escapeHtml(lesson.orientationNote)}（此堂預設不排課本／投影片頁數，下面欄位仍可視需要手動填寫）</p>` : ''}
         <div class="field-row">
           <div class="field" style="flex:0 0 140px;"><label>本堂節數</label><input type="number" id="editPeriods" min="1" value="${lesson.periods}"></div>
           <div class="field"><span style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">預設每堂 ${course.periodsPerLesson||1} 節，此堂可單獨調整（例如只上1節）</span></div>
@@ -1021,16 +1071,21 @@
   function renderCourseListSettings(){
     const area = document.getElementById('courseListArea');
     if (!state.courses.length){ area.innerHTML = `<div class="empty-state">尚未新增任何科目</div>`; return; }
-    area.innerHTML = state.courses.map(c => `
+    area.innerHTML = state.courses.map(c => {
+      const sched = generateSchedule(c);
+      const estCount = sched.list.length;
+      const estPeriods = estCount ? sched.list[estCount-1].totalPeriods : 0;
+      return `
       <div class="course-list-item">
         <div class="info"><span class="course-color-dot" style="background:${c.color}"></span>${escapeHtml(c.name)}
-          <small>${c.startDate} ~ ${c.endDate}・每堂${c.periodsPerLesson||1}節${(c.units&&c.units.length) ? `・${c.units.length}個單元` : ''}</small>
+          <small>${c.startDate} ~ ${c.endDate}${(c.units&&c.units.length) ? `・${c.units.length}個單元` : ''}・扣除假日後預估可上 ${estCount} 堂（合計 ${estPeriods} 節）</small>
         </div>
         <div style="display:flex;gap:6px;">
           <button class="btn btn-sm" data-edit-course="${c.id}">編輯</button>
           <button class="btn btn-sm btn-danger" data-del-course="${c.id}">刪除</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     area.querySelectorAll('[data-edit-course]').forEach(b=>b.addEventListener('click', ()=>openCourseEdit(b.getAttribute('data-edit-course'))));
     area.querySelectorAll('[data-del-course]').forEach(b=>b.addEventListener('click', ()=>{
       const id = b.getAttribute('data-del-course');
@@ -1073,7 +1128,8 @@
       weekdays: [true,false,true,false,true,false,false],
       textbookStartPage:1, textbookPagesPerLesson:5,
       slideStartPage:1, slidePagesPerLesson:10,
-      periodsPerLesson:1, units:[],
+      periodsPerLesson:1, periodsByWeekday: null, units:[],
+      orientation: {enabled:false, note:'班規說明・座位安排'},
       skipDates:[], extraDates:[], overrides:{}
     } : state.courses.find(c=>c.id===courseId);
 
@@ -1097,14 +1153,18 @@
         <div class="field"><label>結束日期</label><input type="date" id="ceEnd" value="${course.endDate}"></div>
       </div>
       <div class="field">
-        <label>每週上課日</label>
-        <div class="weekday-picker">
-          ${WEEKDAY_LABELS.map((w,i)=>`<button type="button" data-wd="${i}" class="${course.weekdays[i]?'active':''}">${w}</button>`).join('')}
+        <label>每週上課日與當日節數（打勾啟用該天，下方數字為當天實際節數，會自動套用到每一堂）</label>
+        <div class="weekday-picker" id="ceWeekdayPicker">
+          ${WEEKDAY_LABELS.map((w,i)=>`
+            <div class="wd-col" style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+              <button type="button" data-wd="${i}" class="${course.weekdays[i]?'active':''}">${w}</button>
+              <input type="number" class="wd-periods" data-wdp="${i}" min="1" style="width:44px;font-size:12px;padding:3px;text-align:center;border:1px solid var(--line);border-radius:6px;${course.weekdays[i]?'':'visibility:hidden;'}" value="${(course.periodsByWeekday && course.periodsByWeekday[i]) || course.periodsPerLesson || 1}">
+            </div>`).join('')}
         </div>
       </div>
       <div class="field-row">
-        <div class="field" style="flex:0 0 160px;"><label>每次上課節數</label><input type="number" id="cePeriods" min="1" value="${course.periodsPerLesson||1}"></div>
-        <div class="field"><span id="cePeriodsHint" style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">每堂實際上課的節數（例如連堂2節），用於累計總節數</span></div>
+        <div class="field" style="flex:0 0 160px;"><label>預設每堂節數</label><input type="number" id="cePeriods" min="1" value="${course.periodsPerLesson||1}"></div>
+        <div class="field"><span id="cePeriodsHint" style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">用於補課／新加入的上課日等尚未個別設定節數的情況；已勾選的上課日請直接調整上面每天的節數</span></div>
       </div>
       <div class="field-row">
         <div class="field"><label>課本起始頁</label><input type="number" id="ceTStart" value="${course.textbookStartPage}"></div>
@@ -1113,6 +1173,15 @@
       <div class="field-row">
         <div class="field"><label>投影片起始頁</label><input type="number" id="ceSStart" value="${course.slideStartPage}"></div>
         <div class="field"><label>每次上課頁數</label><input type="number" id="ceSPages" value="${course.slidePagesPerLesson}"></div>
+      </div>
+      <div class="field-row" style="align-items:center;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13.5px;cursor:pointer;">
+          <input type="checkbox" id="ceOrientation" ${course.orientation && course.orientation.enabled ? 'checked' : ''}> 第一週安排班規說明／換座位（不排課本頁數）
+        </label>
+      </div>
+      <div class="field" id="ceOrientationNoteWrap" style="display:${course.orientation && course.orientation.enabled ? 'block' : 'none'};">
+        <label>第一週說明內容</label>
+        <input type="text" id="ceOrientationNote" value="${escapeHtml((course.orientation && course.orientation.note) || '班規說明・座位安排')}">
       </div>
       <hr class="modal-divider">
       <div class="field">
@@ -1135,27 +1204,52 @@
       });
     });
     const weekdaysLocal = course.weekdays.slice();
+    const periodsByWeekdayLocal = WEEKDAY_LABELS.map((_,i)=> (course.periodsByWeekday && course.periodsByWeekday[i]) || course.periodsPerLesson || 1);
+    function currentDefaultPeriods(){
+      const el = document.getElementById('cePeriods');
+      return Math.max(1, parseInt(el && el.value,10) || 1);
+    }
     content.querySelectorAll('[data-wd]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const i = parseInt(btn.getAttribute('data-wd'),10);
         weekdaysLocal[i] = !weekdaysLocal[i];
         btn.classList.toggle('active', weekdaysLocal[i]);
+        const wdInput = content.querySelector(`.wd-periods[data-wdp="${i}"]`);
+        if (wdInput) wdInput.style.visibility = weekdaysLocal[i] ? 'visible' : 'hidden';
         updateUnitsSummary();
       });
     });
+    content.querySelectorAll('.wd-periods').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const i = parseInt(inp.getAttribute('data-wdp'),10);
+        periodsByWeekdayLocal[i] = Math.max(1, parseInt(inp.value,10) || 1);
+        updateUnitsSummary();
+      });
+    });
+    document.getElementById('cePeriods').addEventListener('input', ()=>{ renderUnitsList(); updateUnitsSummary(); });
+    document.getElementById('ceOrientation').addEventListener('change', e=>{
+      document.getElementById('ceOrientationNoteWrap').style.display = e.target.checked ? 'block' : 'none';
+    });
 
-    /* ---- 單元 / 章節設定編輯區 ---- */
+    /* ---- 單元 / 章節設定編輯區（堂數與節數雙向連動） ---- */
     const unitsLocal = (course.units || []).map(u => ({ id: u.id || uid(), name: u.name || '', lessonCount: u.lessonCount || 1 }));
     function renderUnitsList(){
       const list = document.getElementById('ceUnitsList');
       if (!list) return;
+      const dp = currentDefaultPeriods();
       if (!unitsLocal.length){
         list.innerHTML = `<div class="empty-state" style="padding:2px 0;">尚未設定單元，課表將只依頁碼排課</div>`;
       } else {
-        list.innerHTML = unitsLocal.map((u,idx)=>`
+        list.innerHTML = `<div class="field-row" style="margin-bottom:0;color:var(--muted);font-size:11px;">
+            <div class="field" style="flex:2 1 160px;">單元名稱</div>
+            <div class="field" style="flex:0 0 80px;">堂數</div>
+            <div class="field" style="flex:0 0 90px;">節數（換算）</div>
+            <span style="width:30px;"></span>
+          </div>` + unitsLocal.map((u,idx)=>`
           <div class="field-row" data-uidx="${idx}" style="margin-bottom:0;align-items:center;">
             <div class="field" style="flex:2 1 160px;"><input type="text" class="unit-name" placeholder="單元名稱" value="${escapeHtml(u.name)}"></div>
-            <div class="field" style="flex:0 0 90px;"><input type="number" class="unit-count" min="1" value="${u.lessonCount}"></div>
+            <div class="field" style="flex:0 0 80px;"><input type="number" class="unit-count" min="1" value="${u.lessonCount}"></div>
+            <div class="field" style="flex:0 0 90px;"><input type="number" class="unit-periods" min="1" value="${u.lessonCount * dp}"></div>
             <button type="button" class="icon-btn btn-sm unit-remove" title="刪除此單元" style="width:30px;height:30px;flex:0 0 auto;">✕</button>
           </div>`).join('');
       }
@@ -1164,6 +1258,16 @@
         row.querySelector('.unit-name').addEventListener('input', e=>{ unitsLocal[idx].name = e.target.value; });
         row.querySelector('.unit-count').addEventListener('input', e=>{
           unitsLocal[idx].lessonCount = parseInt(e.target.value,10) || 1;
+          const periodsInput = row.querySelector('.unit-periods');
+          if (periodsInput) periodsInput.value = unitsLocal[idx].lessonCount * currentDefaultPeriods();
+          updateUnitsSummary();
+        });
+        row.querySelector('.unit-periods').addEventListener('input', e=>{
+          const dp2 = currentDefaultPeriods();
+          const totalP = Math.max(1, parseInt(e.target.value,10) || dp2);
+          unitsLocal[idx].lessonCount = Math.max(1, Math.ceil(totalP / dp2));
+          const countInput = row.querySelector('.unit-count');
+          if (countInput) countInput.value = unitsLocal[idx].lessonCount;
           updateUnitsSummary();
         });
         row.querySelector('.unit-remove').addEventListener('click', ()=>{
@@ -1178,10 +1282,10 @@
       const totalUnitLessons = unitsLocal.reduce((s,u)=>s+(u.lessonCount||0),0);
       const startDate = document.getElementById('ceStart').value;
       const endDate = document.getElementById('ceEnd').value;
-      const estTotal = estimateLessonCount(startDate, endDate, weekdaysLocal, course.skipDates||[], course.extraDates||[]);
-      if (!unitsLocal.length){ summary.textContent = `預估此排課設定共 ${estTotal} 堂`; summary.style.color = 'var(--muted)'; return; }
-      summary.textContent = `單元共分配 ${totalUnitLessons} 堂／預估排課共 ${estTotal} 堂`;
-      summary.style.color = totalUnitLessons > estTotal ? 'var(--danger)' : (totalUnitLessons < estTotal ? 'var(--accent-dark)' : 'var(--today-ring)');
+      const stats = estimateLessonStats(startDate, endDate, weekdaysLocal, periodsByWeekdayLocal, currentDefaultPeriods(), course.skipDates||[], course.extraDates||[]);
+      if (!unitsLocal.length){ summary.textContent = `預估扣除假日後共 ${stats.count} 堂（合計 ${stats.periods} 節）`; summary.style.color = 'var(--muted)'; return; }
+      summary.textContent = `單元共分配 ${totalUnitLessons} 堂／預估扣除假日後共 ${stats.count} 堂（合計 ${stats.periods} 節）`;
+      summary.style.color = totalUnitLessons > stats.count ? 'var(--danger)' : (totalUnitLessons < stats.count ? 'var(--accent-dark)' : 'var(--today-ring)');
     }
     renderUnitsList();
     updateUnitsSummary();
@@ -1204,6 +1308,9 @@
       const slideStartPage = parseInt(document.getElementById('ceSStart').value,10) || 0;
       const slidePagesPerLesson = parseInt(document.getElementById('ceSPages').value,10) || 0;
       const periodsPerLesson = Math.max(1, parseInt(document.getElementById('cePeriods').value,10) || 1);
+      const periodsByWeekday = periodsByWeekdayLocal.slice();
+      const orientationEnabled = document.getElementById('ceOrientation').checked;
+      const orientationNote = document.getElementById('ceOrientationNote').value.trim() || '班規說明・座位安排';
       const units = unitsLocal.filter(u=>u.name && u.name.trim()).map(u=>({id:u.id, name:u.name.trim(), lessonCount:Math.max(1, u.lessonCount||1)}));
       if (!startDate || !endDate || startDate > endDate){
         showToast('請確認日期範圍正確');
@@ -1212,13 +1319,133 @@
       const updated = Object.assign({}, course, {
         name, color: pickedColor, startDate, endDate, weekdays: weekdaysLocal,
         textbookStartPage, textbookPagesPerLesson, slideStartPage, slidePagesPerLesson,
-        periodsPerLesson, units
+        periodsPerLesson, periodsByWeekday, units,
+        orientation: { enabled: orientationEnabled, note: orientationNote }
       });
       if (isNew){ state.courses.push(updated); state.activeCourseId = updated.id; }
       else { Object.assign(course, updated); }
       save(); overlay.classList.remove('open'); renderCourseListSettings();
       showToast('科目已儲存');
     });
+  }
+
+  /* ---- 依課表格辨識科目精靈 ---- */
+  function openTimetableImport(){
+    const overlay = document.getElementById('timetableImportOverlay');
+    const content = document.getElementById('timetableImportContent');
+    let rowCount = 8;
+    content.innerHTML = `
+      <div class="modal-header">
+        <h2>依每週課表辨識科目</h2>
+        <button class="icon-btn" id="closeTimetableImport">✕</button>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted);margin:-4px 0 10px;">
+        依實際課表，把每一節對應的科目名稱填進下面的表格（同一天同一科目出現在幾格，代表當天就要上幾節）。
+        填好後按「辨識課表」，系統會自動抓出有哪些科目、各在星期幾要上幾節，套用到對應科目設定（找不到同名科目就會建議新增）。
+      </p>
+      <div style="overflow-x:auto;">
+        <table id="ttGrid" style="border-collapse:collapse;width:100%;min-width:560px;">
+          <thead><tr>
+            <th style="width:56px;"></th>
+            ${WEEKDAY_LABELS.map(w=>`<th style="padding:4px;font-size:12px;color:var(--muted);">${w}</th>`).join('')}
+          </tr></thead>
+          <tbody id="ttGridBody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
+        <button type="button" class="btn btn-sm" id="ttAddRow">＋ 新增節次</button>
+        <span style="font-size:12px;color:var(--muted);">目前已存在科目：${state.courses.map(c=>escapeHtml(c.name)).join('、') || '（無）'}</span>
+      </div>
+      <div id="ttPreviewArea" style="margin-top:14px;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" id="ttCancel">取消</button>
+        <button class="btn btn-primary btn-sm" id="ttRecognize">辨識課表</button>
+      </div>`;
+
+    function renderTtGrid(){
+      const body = document.getElementById('ttGridBody');
+      const vals = {};
+      body.querySelectorAll('.tt-cell').forEach(inp=>{ vals[`${inp.dataset.row}-${inp.dataset.col}`] = inp.value; });
+      let rowsHtml = '';
+      for (let r=0;r<rowCount;r++){
+        rowsHtml += `<tr><td style="font-size:12px;color:var(--muted);padding:3px;white-space:nowrap;">第${r+1}節</td>`;
+        for (let c=0;c<7;c++){
+          const key = `${r}-${c}`;
+          rowsHtml += `<td style="padding:2px;"><input type="text" class="tt-cell" data-row="${r}" data-col="${c}" value="${escapeHtml(vals[key]||'')}" style="width:100%;min-width:58px;font-size:12px;padding:5px 3px;border:1px solid var(--line);border-radius:6px;text-align:center;"></td>`;
+        }
+        rowsHtml += `</tr>`;
+      }
+      body.innerHTML = rowsHtml;
+    }
+    renderTtGrid();
+    document.getElementById('ttAddRow').addEventListener('click', ()=>{ rowCount++; renderTtGrid(); });
+    document.getElementById('closeTimetableImport').addEventListener('click', ()=>overlay.classList.remove('open'));
+    document.getElementById('ttCancel').addEventListener('click', ()=>overlay.classList.remove('open'));
+
+    document.getElementById('ttRecognize').addEventListener('click', ()=>{
+      const counts = {}; // 科目名稱 -> 各星期幾出現的節數
+      content.querySelectorAll('.tt-cell').forEach(inp=>{
+        const name = inp.value.trim();
+        if (!name) return;
+        const c = parseInt(inp.getAttribute('data-col'),10);
+        if (!counts[name]) counts[name] = [0,0,0,0,0,0,0];
+        counts[name][c]++;
+      });
+      const names = Object.keys(counts);
+      const previewArea = document.getElementById('ttPreviewArea');
+      if (!names.length){
+        previewArea.innerHTML = `<div class="empty-state">尚未偵測到任何科目，請先在表格中填入科目名稱</div>`;
+        return;
+      }
+      previewArea.innerHTML = `<div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px;">偵測到 ${names.length} 個科目，請確認套用位置：</div>` +
+        names.map(name=>{
+          const cnts = counts[name];
+          const summary = cnts.map((n,i)=> n>0 ? `${WEEKDAY_LABELS[i]} ${n}節` : null).filter(Boolean).join('、');
+          const matched = state.courses.find(c=>c.name.trim()===name);
+          const options = [`<option value="__new__" ${!matched?'selected':''}>➕ 新增為新科目「${escapeHtml(name)}」</option>`]
+            .concat(state.courses.map(c=>`<option value="${c.id}" ${matched&&matched.id===c.id?'selected':''}>更新既有科目：${escapeHtml(c.name)}</option>`));
+          return `<div class="field-row" data-tt-name="${escapeHtml(name)}" style="align-items:center;">
+            <div class="field" style="flex:1 1 150px;"><label style="font-size:12px;">${escapeHtml(name)}</label><div style="font-size:12px;color:var(--muted);">${summary}</div></div>
+            <div class="field" style="flex:1 1 210px;"><label style="font-size:11px;">套用到</label><select class="tt-target">${options.join('')}</select></div>
+          </div>`;
+        }).join('') +
+        `<div class="modal-actions"><button class="btn btn-primary btn-sm" id="ttApply">套用設定</button></div>`;
+
+      document.getElementById('ttApply').addEventListener('click', ()=>{
+        let created = 0, updated = 0;
+        previewArea.querySelectorAll('[data-tt-name]').forEach(row=>{
+          const name = row.getAttribute('data-tt-name');
+          const target = row.querySelector('.tt-target').value;
+          const cnts = counts[name];
+          const weekdays = cnts.map(n=>n>0);
+          const periodsByWeekday = cnts.map(n=>n>0?n:0);
+          const nonZero = cnts.filter(n=>n>0);
+          const defaultPeriods = nonZero.length ? Math.max(...nonZero) : 1;
+          if (target === '__new__'){
+            state.courses.push({
+              id: uid(), name, color: COLORS[state.courses.length % COLORS.length],
+              startDate: `${state.year}-09-01`, endDate: `${state.year+1}-01-20`,
+              weekdays, periodsByWeekday,
+              textbookStartPage:1, textbookPagesPerLesson:5,
+              slideStartPage:1, slidePagesPerLesson:10,
+              periodsPerLesson: defaultPeriods, units:[],
+              orientation:{enabled:false, note:'班規說明・座位安排'},
+              skipDates:[], extraDates:[], overrides:{}
+            });
+            created++;
+          } else {
+            const course = state.courses.find(c=>c.id===target);
+            if (course){ course.weekdays = weekdays; course.periodsByWeekday = periodsByWeekday; updated++; }
+          }
+        });
+        save();
+        overlay.classList.remove('open');
+        renderCourseListSettings();
+        showToast(`已套用課表：新增 ${created} 個科目、更新 ${updated} 個科目，請記得個別確認學期日期與課本頁碼設定`);
+      });
+    });
+
+    overlay.classList.add('open');
   }
 
   /* ---- Holiday edit modal ---- */
@@ -1282,6 +1509,7 @@
     document.getElementById('closeSettings').addEventListener('click', ()=>document.getElementById('settingsModalOverlay').classList.remove('open'));
     document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click', ()=>switchSettingsTab(b.getAttribute('data-tab'))));
     document.getElementById('addCourseBtn').addEventListener('click', ()=>openCourseEdit(null));
+    document.getElementById('btnImportTimetable').addEventListener('click', ()=>openTimetableImport());
     document.getElementById('addHolidayBtn').addEventListener('click', ()=>openHolidayEdit(null));
     document.getElementById('addHolidayQuick').addEventListener('click', ()=>openHolidayEdit(null, todayStr));
     document.getElementById('resetDataBtn').addEventListener('click', ()=>{
@@ -1337,7 +1565,7 @@
       showToast('已中斷雲端同步（僅本機保留資料）');
     });
     // click outside modal closes it
-    [ 'dayModalOverlay','settingsModalOverlay','courseEditOverlay','holidayEditOverlay' ].forEach(id=>{
+    [ 'dayModalOverlay','settingsModalOverlay','courseEditOverlay','holidayEditOverlay','timetableImportOverlay' ].forEach(id=>{
       const el = document.getElementById(id);
       el.addEventListener('click', e=>{ if (e.target === el) el.classList.remove('open'); });
     });
