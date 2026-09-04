@@ -409,9 +409,9 @@
           slideStartPage: 1, slidePagesPerLesson: 12,
           periodsPerLesson: 2, periodsByWeekday: [2,1,2,1,2,1,1],
           units: [
-            {id: uid(), name:'第一單元・整數與因數', lessonCount: 8},
-            {id: uid(), name:'第二單元・分數運算', lessonCount: 10},
-            {id: uid(), name:'第三單元・幾何圖形', lessonCount: 8}
+            {id: uid(), name:'第一單元・整數與因數', periodCount: 14},
+            {id: uid(), name:'第二單元・分數運算', periodCount: 18},
+            {id: uid(), name:'第三單元・幾何圖形', periodCount: 14}
           ],
           orientation: {enabled:true, note:'班規說明・座位安排'},
           skipDates: [], extraDates: [], overrides: {}
@@ -424,8 +424,8 @@
           slideStartPage: 1, slidePagesPerLesson: 8,
           periodsPerLesson: 1, periodsByWeekday: [1,1,1,1,1,1,1],
           units: [
-            {id: uid(), name:'Unit 1', lessonCount: 6},
-            {id: uid(), name:'Unit 2', lessonCount: 6}
+            {id: uid(), name:'Unit 1', periodCount: 6},
+            {id: uid(), name:'Unit 2', periodCount: 6}
           ],
           orientation: {enabled:false, note:'班規說明・座位安排'},
           skipDates: [], extraDates: [], overrides: {}
@@ -564,21 +564,29 @@
     return state.globalHolidays.some(h => dateStr >= h.start && dateStr <= h.end);
   }
 
-  // 依課程「單元/章節設定」與堂序（0-based index）算出該堂屬於哪個單元
-  function unitAtIndex(units, index){
+  // 依課程「單元/章節設定」與「累計節數」算出某一次上課屬於哪個單元
+  // units 的每個項目改用 periodCount（節數）為主；若讀到舊資料只有 lessonCount（堂數），會自動換算成節數
+  function normalizeUnits(course){
+    const dp = Math.max(1, course.periodsPerLesson || 1);
+    return (course.units || []).map(u => ({
+      id: u.id, name: u.name,
+      periodCount: u.periodCount || (u.lessonCount ? u.lessonCount * dp : 1)
+    }));
+  }
+  function unitAtPeriod(units, cumulativeBefore){
     if (!units || !units.length) return null;
     let acc = 0;
     for (let i=0;i<units.length;i++){
-      const cnt = Math.max(1, units[i].lessonCount||1);
-      if (index < acc + cnt){
-        return { name: units[i].name, unitIndex: i, withinUnit: index - acc + 1, unitTotal: cnt };
+      const cnt = Math.max(1, units[i].periodCount||1);
+      if (cumulativeBefore < acc + cnt){
+        return { name: units[i].name, unitIndex: i, periodWithinUnit: cumulativeBefore - acc + 1, unitTotal: cnt };
       }
       acc += cnt;
     }
     return null; // 超出已設定的單元範圍
   }
 
-  // 在不寫入頁碼指標的情況下，預估某段設定會產生幾堂課（供設定畫面即時試算用）
+  // 在不寫入頁碼指標的情況下，預估某段設定會產生幾次上課（供設定畫面即時試算用）
   function estimateLessonCount(startDate, endDate, weekdays, skipDates, extraDates){
     if (!startDate || !endDate || startDate > endDate) return 0;
     skipDates = skipDates || []; extraDates = extraDates || [];
@@ -647,7 +655,8 @@
     let tPtr = course.textbookStartPage;
     let sPtr = course.slideStartPage;
     let periodPtr = 0;
-    let unitProgress = 0; // 只有非開學安排的堂次才會推進單元進度
+    let unitPeriodProgress = 0; // 只有非開學安排的節數才會累計進單元進度
+    const normalizedUnits = normalizeUnits(course);
     const orientationOn = !!(course.orientation && course.orientation.enabled);
     const orientationEnd = orientationOn ? addDays(course.startDate, 6) : null;
     candidates.forEach((dateStr, i) => {
@@ -664,12 +673,13 @@
       const idx = jsDayToIdx(parseDate(dateStr).getDay());
       const periods = (ov.periods !== undefined && ov.periods !== null) ? ov.periods : periodsForWeekday(course, idx);
       periodPtr += periods;
-      const unitInfo = isOrientation ? null : unitAtIndex(course.units, unitProgress);
-      if (!isOrientation) unitProgress++;
+      const unitInfo = isOrientation ? null : unitAtPeriod(normalizedUnits, unitPeriodProgress);
+      if (!isOrientation) unitPeriodProgress += periods;
       const lesson = {
         date: dateStr, index: i+1, tStart, tEnd, tPages, sStart, sEnd, sPages,
         periods, totalPeriods: periodPtr,
-        unitName: unitInfo ? unitInfo.name : '', unitIndex: unitInfo ? unitInfo.unitIndex : null, withinUnit: unitInfo ? unitInfo.withinUnit : null,
+        unitName: unitInfo ? unitInfo.name : '', unitIndex: unitInfo ? unitInfo.unitIndex : null,
+        periodWithinUnit: unitInfo ? unitInfo.periodWithinUnit : null, unitTotalPeriods: unitInfo ? unitInfo.unitTotal : null,
         isOrientation, orientationNote: isOrientation ? (course.orientation.note || '班規說明・座位安排') : '',
         note: ov.note || '', isExtra: course.extraDates.includes(dateStr)
       };
@@ -701,10 +711,10 @@
         cards.push(`
           <div class="today-card" style="border-left-color:${course.color}">
             <div class="course-name">${escapeHtml(course.name)}</div>
-            <div class="lesson-idx">第 ${lesson.index} 堂・${weekdayLabelOf(lesson.date)}${lesson.periods ? `・第 ${lesson.totalPeriods} 節（本堂 ${lesson.periods} 節）` : ''}</div>
+            <div class="lesson-idx">第 ${lesson.index} 次・${weekdayLabelOf(lesson.date)}${lesson.periods ? `・第 ${lesson.totalPeriods} 節（本次 ${lesson.periods} 節）` : ''}</div>
             ${lesson.isOrientation ? `<div class="rows"><div><span class="label">開學安排</span>${escapeHtml(lesson.orientationNote)}</div></div>` : `
             <div class="rows">
-              ${lesson.unitName ? `<div><span class="label">單元</span>${escapeHtml(lesson.unitName)}${lesson.withinUnit ? `（第 ${lesson.withinUnit} 堂）` : ''}</div>` : ''}
+              ${lesson.unitName ? `<div><span class="label">單元</span>${escapeHtml(lesson.unitName)}${lesson.periodWithinUnit ? `（第 ${lesson.periodWithinUnit}／${lesson.unitTotalPeriods} 節）` : ''}</div>` : ''}
               <div><span class="label">課本</span>${lesson.tPages>0 ? `${lesson.tStart} – ${lesson.tEnd} 頁` : '無'}</div>
               <div><span class="label">投影片</span>${lesson.sPages>0 ? `${lesson.sStart} – ${lesson.sEnd} 頁` : '無'}</div>
             </div>`}
@@ -715,7 +725,7 @@
         cards.push(`
           <div class="today-empty">
             <strong style="color:var(--ink);">${escapeHtml(course.name)}</strong>：今天沒有安排。
-            ${next ? `下次上課 ${next.date.slice(5)}（第 ${next.index} 堂）` : '課程已排完或尚未開始'}
+            ${next ? `下次上課 ${next.date.slice(5)}（第 ${next.index} 次）` : '課程已排完或尚未開始'}
           </div>`);
       }
     });
@@ -795,7 +805,7 @@
         if (lesson){
           anyLesson = true;
           dots.push(`<span style="background:${c.color}"></span>`);
-          if (!compact) tags.push(`<div class="page-tag" style="color:${c.color}">${escapeHtml(c.name)} 第${lesson.index}堂</div>`);
+          if (!compact) tags.push(`<div class="page-tag" style="color:${c.color}">${escapeHtml(c.name)} 第${lesson.index}次</div>`);
         }
       });
       if (globalHol) classes.push('holiday');
@@ -809,7 +819,7 @@
       const courseSkip = course && course.skipDates.includes(dateStr);
       if (lesson){
         classes.push('lesson');
-        inner += `<div class="idx-tag" style="color:${course.color}">第${lesson.index}堂${lesson.periods>1?`(${lesson.periods}節)`:''}</div>`;
+        inner += `<div class="idx-tag" style="color:${course.color}">第${lesson.index}次${lesson.periods>1?`(${lesson.periods}節)`:''}</div>`;
         if (!compact){
           if (lesson.isOrientation) inner += `<div class="page-tag" style="color:#92400e;">🪑 ${escapeHtml(lesson.orientationNote)}</div>`;
           else if (lesson.unitName) inner += `<div class="page-tag" style="color:${course.color};opacity:1;">${escapeHtml(lesson.unitName)}</div>`;
@@ -883,7 +893,7 @@
         const lesson = scheduleCacheGlobal[c.id].byDate.get(dateStr);
         const skip = c.skipDates.includes(dateStr);
         let status;
-        if (lesson) status = `第 ${lesson.index} 堂・課本 ${lesson.tStart}-${lesson.tEnd}・投影片 ${lesson.sStart}-${lesson.sEnd}`;
+        if (lesson) status = `第 ${lesson.index} 次・課本 ${lesson.tStart}-${lesson.tEnd}・投影片 ${lesson.sStart}-${lesson.sEnd}`;
         else if (globalHol) status = '全校假日';
         else if (skip) status = '此科目停課';
         else status = '非上課日';
@@ -941,13 +951,13 @@
     if (lesson){
       bodyHtml = `
         <p style="color:var(--ink-soft);font-size:12px;margin:-6px 0 12px;">
-          第 ${lesson.index} 堂・累計 ${lesson.totalPeriods} 節
-          ${lesson.unitName ? `・所屬單元：${escapeHtml(lesson.unitName)}（本單元第 ${lesson.withinUnit} 堂）` : ''}
+          第 ${lesson.index} 次・累計 ${lesson.totalPeriods} 節
+          ${lesson.unitName ? `・所屬單元：${escapeHtml(lesson.unitName)}（第 ${lesson.periodWithinUnit}／${lesson.unitTotalPeriods} 節）` : ''}
         </p>
-        ${lesson.isOrientation ? `<p style="background:#fef3c7;color:#92400e;font-size:12px;padding:8px 10px;border-radius:8px;margin:-4px 0 12px;">🪑 開學安排：${escapeHtml(lesson.orientationNote)}（此堂預設不排課本／投影片頁數，下面欄位仍可視需要手動填寫）</p>` : ''}
+        ${lesson.isOrientation ? `<p style="background:#fef3c7;color:#92400e;font-size:12px;padding:8px 10px;border-radius:8px;margin:-4px 0 12px;">🪑 開學安排：${escapeHtml(lesson.orientationNote)}（此次預設不排課本／投影片頁數，下面欄位仍可視需要手動填寫）</p>` : ''}
         <div class="field-row">
-          <div class="field" style="flex:0 0 140px;"><label>本堂節數</label><input type="number" id="editPeriods" min="1" value="${lesson.periods}"></div>
-          <div class="field"><span style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">預設每堂 ${course.periodsPerLesson||1} 節，此堂可單獨調整（例如只上1節）</span></div>
+          <div class="field" style="flex:0 0 140px;"><label>本次節數</label><input type="number" id="editPeriods" min="1" value="${lesson.periods}"></div>
+          <div class="field"><span style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">預設每次 ${course.periodsPerLesson||1} 節，此次可單獨調整（例如只上1節）</span></div>
         </div>
         <div class="field-row">
           <div class="field"><label>課本起始頁</label><input type="number" id="editTStart" value="${lesson.tStart}"></div>
@@ -963,7 +973,7 @@
           <button class="btn btn-danger btn-sm" id="btnSkipThis">設為停課（此科目跳過，後續遞補）</button>
           <button class="btn btn-primary btn-sm" id="btnSaveOverride">儲存（自動套用到後續課程）</button>
         </div>
-        <p style="color:var(--muted);font-size:12px;margin-top:10px;">提示：調整此堂頁數或節數後，後面所有堂次會自動依序接續重新計算頁碼與累計節數。</p>`;
+        <p style="color:var(--muted);font-size:12px;margin-top:10px;">提示：調整此次頁數或節數後，後面所有次數會自動依序接續重新計算頁碼與累計節數。</p>`;
     } else if (globalHol){
       bodyHtml = `<p style="color:var(--ink-soft);">此日為全校假日，所有科目自動跳過。</p>
         <div class="modal-actions"><button class="btn btn-sm" id="btnGotoAllForHoliday">前往「假日管理」調整</button></div>`;
@@ -1019,7 +1029,7 @@
       course.skipDates.push(dateStr);
       delete course.overrides[dateStr];
       save(); overlay.classList.remove('open');
-      showToast('已設為停課，後續堂次自動往前遞補');
+      showToast('已設為停課，後續次數自動往前遞補');
     });
     const unskipBtn = document.getElementById('btnUnskip');
     if (unskipBtn) unskipBtn.addEventListener('click', ()=>{
@@ -1078,7 +1088,7 @@
       return `
       <div class="course-list-item">
         <div class="info"><span class="course-color-dot" style="background:${c.color}"></span>${escapeHtml(c.name)}
-          <small>${c.startDate} ~ ${c.endDate}${(c.units&&c.units.length) ? `・${c.units.length}個單元` : ''}・扣除假日後預估可上 ${estCount} 堂（合計 ${estPeriods} 節）</small>
+          <small>${c.startDate} ~ ${c.endDate}${(c.units&&c.units.length) ? `・${c.units.length}個單元` : ''}・扣除假日後預估可上 ${estCount} 次（合計 ${estPeriods} 節）</small>
         </div>
         <div style="display:flex;gap:6px;">
           <button class="btn btn-sm" data-edit-course="${c.id}">編輯</button>
@@ -1153,7 +1163,7 @@
         <div class="field"><label>結束日期</label><input type="date" id="ceEnd" value="${course.endDate}"></div>
       </div>
       <div class="field">
-        <label>每週上課日與當日節數（打勾啟用該天，下方數字為當天實際節數，會自動套用到每一堂）</label>
+        <label>每週上課日與當日節數（打勾啟用該天，下方數字為當天實際節數，會自動套用到每一次上課）</label>
         <div class="weekday-picker" id="ceWeekdayPicker">
           ${WEEKDAY_LABELS.map((w,i)=>`
             <div class="wd-col" style="display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -1163,7 +1173,7 @@
         </div>
       </div>
       <div class="field-row">
-        <div class="field" style="flex:0 0 160px;"><label>預設每堂節數</label><input type="number" id="cePeriods" min="1" value="${course.periodsPerLesson||1}"></div>
+        <div class="field" style="flex:0 0 160px;"><label>預設每次節數</label><input type="number" id="cePeriods" min="1" value="${course.periodsPerLesson||1}"></div>
         <div class="field"><span id="cePeriodsHint" style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:8px;">用於補課／新加入的上課日等尚未個別設定節數的情況；已勾選的上課日請直接調整上面每天的節數</span></div>
       </div>
       <div class="field-row">
@@ -1185,7 +1195,7 @@
       </div>
       <hr class="modal-divider">
       <div class="field">
-        <label>單元 / 章節設定（依序設定每個單元所需堂數，課表會自動依堂序標示所屬單元）</label>
+        <label>單元 / 章節設定（依序設定每個單元所需節數，課表會自動依累計節數分配到對應的上課日並顯示在月曆上）</label>
         <div id="ceUnitsList" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
           <button type="button" class="btn btn-sm" id="ceAddUnit">＋ 新增單元</button>
@@ -1226,48 +1236,38 @@
         updateUnitsSummary();
       });
     });
-    document.getElementById('cePeriods').addEventListener('input', ()=>{ renderUnitsList(); updateUnitsSummary(); });
+    document.getElementById('cePeriods').addEventListener('input', updateUnitsSummary);
     document.getElementById('ceOrientation').addEventListener('change', e=>{
       document.getElementById('ceOrientationNoteWrap').style.display = e.target.checked ? 'block' : 'none';
     });
 
-    /* ---- 單元 / 章節設定編輯區（堂數與節數雙向連動） ---- */
-    const unitsLocal = (course.units || []).map(u => ({ id: u.id || uid(), name: u.name || '', lessonCount: u.lessonCount || 1 }));
+    /* ---- 單元 / 章節設定編輯區（以節數為主，自動依累計節數分配） ---- */
+    const unitsLocal = (course.units || []).map(u => ({
+      id: u.id || uid(), name: u.name || '',
+      periodCount: u.periodCount || (u.lessonCount ? u.lessonCount * (course.periodsPerLesson||1) : 1)
+    }));
     function renderUnitsList(){
       const list = document.getElementById('ceUnitsList');
       if (!list) return;
-      const dp = currentDefaultPeriods();
       if (!unitsLocal.length){
         list.innerHTML = `<div class="empty-state" style="padding:2px 0;">尚未設定單元，課表將只依頁碼排課</div>`;
       } else {
         list.innerHTML = `<div class="field-row" style="margin-bottom:0;color:var(--muted);font-size:11px;">
             <div class="field" style="flex:2 1 160px;">單元名稱</div>
-            <div class="field" style="flex:0 0 80px;">堂數</div>
-            <div class="field" style="flex:0 0 90px;">節數（換算）</div>
+            <div class="field" style="flex:0 0 90px;">節數</div>
             <span style="width:30px;"></span>
           </div>` + unitsLocal.map((u,idx)=>`
           <div class="field-row" data-uidx="${idx}" style="margin-bottom:0;align-items:center;">
             <div class="field" style="flex:2 1 160px;"><input type="text" class="unit-name" placeholder="單元名稱" value="${escapeHtml(u.name)}"></div>
-            <div class="field" style="flex:0 0 80px;"><input type="number" class="unit-count" min="1" value="${u.lessonCount}"></div>
-            <div class="field" style="flex:0 0 90px;"><input type="number" class="unit-periods" min="1" value="${u.lessonCount * dp}"></div>
+            <div class="field" style="flex:0 0 90px;"><input type="number" class="unit-periods" min="1" value="${u.periodCount}"></div>
             <button type="button" class="icon-btn btn-sm unit-remove" title="刪除此單元" style="width:30px;height:30px;flex:0 0 auto;">✕</button>
           </div>`).join('');
       }
       list.querySelectorAll('[data-uidx]').forEach(row=>{
         const idx = parseInt(row.getAttribute('data-uidx'),10);
         row.querySelector('.unit-name').addEventListener('input', e=>{ unitsLocal[idx].name = e.target.value; });
-        row.querySelector('.unit-count').addEventListener('input', e=>{
-          unitsLocal[idx].lessonCount = parseInt(e.target.value,10) || 1;
-          const periodsInput = row.querySelector('.unit-periods');
-          if (periodsInput) periodsInput.value = unitsLocal[idx].lessonCount * currentDefaultPeriods();
-          updateUnitsSummary();
-        });
         row.querySelector('.unit-periods').addEventListener('input', e=>{
-          const dp2 = currentDefaultPeriods();
-          const totalP = Math.max(1, parseInt(e.target.value,10) || dp2);
-          unitsLocal[idx].lessonCount = Math.max(1, Math.ceil(totalP / dp2));
-          const countInput = row.querySelector('.unit-count');
-          if (countInput) countInput.value = unitsLocal[idx].lessonCount;
+          unitsLocal[idx].periodCount = Math.max(1, parseInt(e.target.value,10) || 1);
           updateUnitsSummary();
         });
         row.querySelector('.unit-remove').addEventListener('click', ()=>{
@@ -1279,18 +1279,18 @@
     function updateUnitsSummary(){
       const summary = document.getElementById('ceUnitsSummary');
       if (!summary) return;
-      const totalUnitLessons = unitsLocal.reduce((s,u)=>s+(u.lessonCount||0),0);
+      const totalUnitPeriods = unitsLocal.reduce((s,u)=>s+(u.periodCount||0),0);
       const startDate = document.getElementById('ceStart').value;
       const endDate = document.getElementById('ceEnd').value;
       const stats = estimateLessonStats(startDate, endDate, weekdaysLocal, periodsByWeekdayLocal, currentDefaultPeriods(), course.skipDates||[], course.extraDates||[]);
-      if (!unitsLocal.length){ summary.textContent = `預估扣除假日後共 ${stats.count} 堂（合計 ${stats.periods} 節）`; summary.style.color = 'var(--muted)'; return; }
-      summary.textContent = `單元共分配 ${totalUnitLessons} 堂／預估扣除假日後共 ${stats.count} 堂（合計 ${stats.periods} 節）`;
-      summary.style.color = totalUnitLessons > stats.count ? 'var(--danger)' : (totalUnitLessons < stats.count ? 'var(--accent-dark)' : 'var(--today-ring)');
+      if (!unitsLocal.length){ summary.textContent = `預估扣除假日後共 ${stats.count} 次（合計 ${stats.periods} 節）`; summary.style.color = 'var(--muted)'; return; }
+      summary.textContent = `單元共分配 ${totalUnitPeriods} 節／預估扣除假日後共 ${stats.count} 次（合計 ${stats.periods} 節）`;
+      summary.style.color = totalUnitPeriods > stats.periods ? 'var(--danger)' : (totalUnitPeriods < stats.periods ? 'var(--accent-dark)' : 'var(--today-ring)');
     }
     renderUnitsList();
     updateUnitsSummary();
     document.getElementById('ceAddUnit').addEventListener('click', ()=>{
-      unitsLocal.push({id:uid(), name:'', lessonCount:1});
+      unitsLocal.push({id:uid(), name:'', periodCount:1});
       renderUnitsList(); updateUnitsSummary();
     });
     document.getElementById('ceStart').addEventListener('input', updateUnitsSummary);
@@ -1311,7 +1311,7 @@
       const periodsByWeekday = periodsByWeekdayLocal.slice();
       const orientationEnabled = document.getElementById('ceOrientation').checked;
       const orientationNote = document.getElementById('ceOrientationNote').value.trim() || '班規說明・座位安排';
-      const units = unitsLocal.filter(u=>u.name && u.name.trim()).map(u=>({id:u.id, name:u.name.trim(), lessonCount:Math.max(1, u.lessonCount||1)}));
+      const units = unitsLocal.filter(u=>u.name && u.name.trim()).map(u=>({id:u.id, name:u.name.trim(), periodCount:Math.max(1, u.periodCount||1)}));
       if (!startDate || !endDate || startDate > endDate){
         showToast('請確認日期範圍正確');
         return;
